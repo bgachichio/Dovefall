@@ -195,7 +195,8 @@ test('the board ranks players and hides everything but name and score', async ()
   assert.equal(r.json.entries[0].score, 55);
   assert.equal(r.json.entries[0].rank, 1);
   assert.equal(r.json.entries[1].score, 20);
-  assert.deepEqual(Object.keys(r.json.entries[0]).sort(), ['at', 'name', 'rank', 'score']);
+  assert.deepEqual(Object.keys(r.json.entries[0]).sort(), ['at', 'name', 'rank', 'score', 'tag']);
+  assert.match(r.json.entries[0].tag, /^[0-9A-HJKMNP-TV-Z]{4}$/, 'every entry carries a discriminator tag');
 });
 
 test('a banned player disappears from the board', async () => {

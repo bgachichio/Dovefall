@@ -35,9 +35,18 @@ async function hmacKey(secret) {
   );
 }
 
-/** Session token: v1.<payload>.<sig>. Compact, stateless, and revocable by rotating the secret. */
-export async function issueSession(playerId, env, nowS = Math.floor(Date.now() / 1000)) {
-  const payload = b64urlEncode(enc.encode(JSON.stringify({ p: playerId, e: nowS + SESSION_TTL_S })));
+/**
+ * Session token: v1.<payload>.<sig>.
+ *
+ * Carries the player's session epoch, so a stateless token can still be
+ * invalidated: claiming a recovery code bumps the epoch and every token minted
+ * before it stops verifying. That is what makes "I lost my phone" recoverable
+ * rather than merely re-issuable.
+ */
+export async function issueSession(playerId, env, epoch = 1, nowS = Math.floor(Date.now() / 1000)) {
+  const payload = b64urlEncode(
+    enc.encode(JSON.stringify({ p: playerId, v: epoch, e: nowS + SESSION_TTL_S })),
+  );
   const key = await hmacKey(env.SESSION_SECRET);
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
   return `v1.${payload}.${b64urlEncode(sig)}`;
@@ -66,7 +75,7 @@ export async function readSession(token, env, nowS = Math.floor(Date.now() / 100
     const body = JSON.parse(dec.decode(b64urlDecode(payload)));
     if (!body || typeof body.p !== 'string' || typeof body.e !== 'number') return null;
     if (body.e <= nowS) return null;
-    return { playerId: body.p, expires: body.e };
+    return { playerId: body.p, epoch: Number(body.v) || 1, expires: body.e };
   } catch {
     return null;
   }
@@ -167,4 +176,62 @@ export function cleanName(raw, fallback = 'Dove') {
   if (typeof raw !== 'string') return fallback;
   const s = raw.replace(/[\p{C}]/gu, '').trim().slice(0, 24);
   return s.length >= 1 ? s : fallback;
+}
+
+
+// ---------------------------------------------------------------- identity
+
+// Crockford base32: no I, L, O or U, so a code read aloud or written on the
+// back of a receipt survives the trip.
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+/**
+ * A short public tag, derived from the player id rather than stored.
+ *
+ * Names are not unique — insisting on that means telling someone their name is
+ * taken, which is a bad first thirty seconds. The tag makes two players called
+ * Brian distinguishable on a board without either of them having to care.
+ */
+export function tagFor(playerId) {
+  // FNV-1a. A display discriminator, not a security boundary.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < playerId.length; i++) {
+    h ^= playerId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  let out = '';
+  for (let i = 0; i < 4; i++) {
+    out += CROCKFORD[h & 31];
+    h >>>= 5;
+  }
+  return out;
+}
+
+/** 15 Crockford characters — about 2^75, grouped for transcription. */
+export function mintRecoveryCode() {
+  const bytes = new Uint8Array(15);
+  crypto.getRandomValues(bytes);
+  let s = '';
+  for (let i = 0; i < 15; i++) s += CROCKFORD[bytes[i] & 31];
+  return `${s.slice(0, 5)}-${s.slice(5, 10)}-${s.slice(10, 15)}`;
+}
+
+/**
+ * Forgiving normalisation. Crockford's whole point is that a human transcribing
+ * a code cannot tell O from 0 or I from 1, so we accept either.
+ */
+export function normaliseRecoveryCode(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, '')
+    .replace(/O/g, '0')
+    .replace(/[IL]/g, '1')
+    .replace(/U/g, 'V');
+  return s.length === 15 ? s : null;
+}
+
+export async function hashRecoveryCode(normalised) {
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(`dovefall-recovery:${normalised}`));
+  return b64urlEncode(digest);
 }

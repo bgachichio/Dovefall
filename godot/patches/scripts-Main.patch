@@ -1,0 +1,42 @@
+--- a/scripts/Main.gd
++++ b/scripts/Main.gd
+@@ -12,6 +12,8 @@
+ const Settings := preload("res://ui/SettingsScreen.gd")
+ const Wardrobe := preload("res://ui/WardrobeScreen.gd")
+ const Pause := preload("res://ui/PauseOverlay.gd")
++const Credits := preload("res://ui/CreditsScreen.gd")
++const Identity := preload("res://ui/IdentityScreen.gd")
+ 
+ 
+ func _ready() -> void:
+@@ -112,6 +114,7 @@
+ 	t.settings_pressed.connect(_open_settings)
+ 	t.leaderboard_pressed.connect(func():
+ 		push_warning("Leaderboard opens Play Games Services — phase 4."))
++	t.credits_pressed.connect(_open_credits)
+ 
+ 
+ func _start_run(mode: String, daily: bool) -> void:
+@@ -133,6 +136,22 @@
+ 	s.set_script(Settings)
+ 	_swap(s)
+ 	s.closed.connect(show_title)
++	s.identity_pressed.connect(_open_identity)
++
++
++func _open_credits() -> void:
++	var c := Control.new()
++	c.set_script(Credits)
++	_swap(c)
++	c.closed.connect(show_title)
++
++
++## Reached from Settings, so Back returns there rather than to the title.
++func _open_identity() -> void:
++	var i := Control.new()
++	i.set_script(Identity)
++	_swap(i)
++	i.closed.connect(_open_settings)
+ 
+ 
+ func _open_settings_from_pause() -> void:

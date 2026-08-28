@@ -1,0 +1,37 @@
+--- a/ui/UiKit.gd
++++ b/ui/UiKit.gd
+@@ -108,6 +108,34 @@
+ 	return box
+ 
+ 
++## A single-line text field. The only place in the game where a player types.
++static func field(placeholder: String, initial: String = "", max_len: int = 24) -> LineEdit:
++	var e := LineEdit.new()
++	e.placeholder_text = placeholder
++	e.text = initial
++	e.max_length = max_len
++	e.custom_minimum_size = Vector2(0, ROW)
++	e.add_theme_font_size_override("font_size", 34)
++	e.add_theme_color_override("font_color", Config.PAPER)
++	e.add_theme_stylebox_override("normal", _box(Color("#1B2536")))
++	e.add_theme_stylebox_override("focus", _box(Color("#243247")))
++	return e
++
++
++## A value the player is meant to read and copy, not edit. Wide letter spacing,
++## because the whole point of a recovery code is transcribing it correctly.
++static func field_display(text: String) -> Label:
++	var l := Label.new()
++	l.text = text
++	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
++	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
++	l.custom_minimum_size.y = ROW
++	l.add_theme_font_size_override("font_size", 40)
++	l.add_theme_color_override("font_color", Config.GOLD)
++	l.add_theme_constant_override("line_spacing", 10)
++	return l
++
++
+ static func spacer(h: int = 20) -> Control:
+ 	var c := Control.new()
+ 	c.custom_minimum_size.y = h

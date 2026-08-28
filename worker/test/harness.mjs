@@ -49,9 +49,24 @@ class Stmt {
 export function makeDb() {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON;');
-  db.exec(readFileSync(join(here, '..', 'schema', '0001_init.sql'), 'utf8'));
+  for (const f of ['0001_init.sql', '0002_identity.sql']) {
+    db.exec(readFileSync(join(here, '..', 'schema', f), 'utf8'));
+  }
   return {
     prepare: (sql) => new Stmt(db, sql),
+    // D1 runs a batch as one transaction; node:sqlite gives us the real thing.
+    batch: async (statements) => {
+      db.exec('BEGIN');
+      try {
+        const out = [];
+        for (const st of statements) out.push(await st.run());
+        db.exec('COMMIT');
+        return out;
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
+    },
     _raw: db,
   };
 }

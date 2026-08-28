@@ -1,0 +1,28 @@
+--- a/ui/TitleScreen.gd
++++ b/ui/TitleScreen.gd
+@@ -5,6 +5,7 @@
+ signal wardrobe_pressed
+ signal settings_pressed
+ signal leaderboard_pressed
++signal credits_pressed
+ 
+ 
+ func _ready() -> void:
+@@ -94,8 +95,16 @@
+ 	row.add_child(s)
+ 	col.add_child(row)
+ 
++	var row2 := HBoxContainer.new()
++	row2.add_theme_constant_override("separation", 12)
+ 	var lb := UiKit.button(Config.t("leaderboard"))
++	lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+ 	lb.pressed.connect(func(): leaderboard_pressed.emit())
+-	col.add_child(lb)
++	row2.add_child(lb)
++	var cr := UiKit.button(Config.t("credits"))
++	cr.size_flags_horizontal = Control.SIZE_EXPAND_FILL
++	cr.pressed.connect(func(): credits_pressed.emit())
++	row2.add_child(cr)
++	col.add_child(row2)
+ 
+ 	add_child(UiKit.page(col))

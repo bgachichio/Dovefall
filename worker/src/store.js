@@ -178,3 +178,66 @@ export async function deletePlayer(db, playerId) {
 export async function touchLastSeen(db, playerId, now) {
   await db.prepare('UPDATE players SET last_seen_at = ?2 WHERE id = ?1').bind(playerId, now).run();
 }
+
+
+// ---------------------------------------------------------------- identity
+
+export async function setName(db, playerId, name) {
+  await db.prepare('UPDATE players SET name = ?2 WHERE id = ?1').bind(playerId, name).run();
+}
+
+/** One live code per player; issuing a new one invalidates the old. */
+export async function setRecovery(db, playerId, hash, now) {
+  await db
+    .prepare('UPDATE players SET recovery_hash = ?2, recovery_issued_at = ?3 WHERE id = ?1')
+    .bind(playerId, hash, now)
+    .run();
+}
+
+export async function findByRecoveryHash(db, hash) {
+  return db.prepare('SELECT * FROM players WHERE recovery_hash = ?1').bind(hash).first();
+}
+
+/**
+ * Move an account onto a new device.
+ *
+ * Three things happen together, so they go in one batch: the code is spent, the
+ * device binding moves, and the session epoch advances — which signs out the
+ * old handset. That last part is the reason someone whose phone was stolen
+ * bothers to do this at all.
+ *
+ * If the new device was already carrying a throwaway guest, it is unbound. An
+ * empty guest (no sign-in, no scores) is deleted outright; one with scores is
+ * left in place rather than quietly destroyed.
+ */
+export async function claimRecovery(db, player, deviceId, now) {
+  const squatter = await findByDeviceId(db, deviceId);
+  const statements = [];
+
+  if (squatter && squatter.id !== player.id) {
+    const scores = await db
+      .prepare('SELECT COUNT(*) AS n FROM bests WHERE player_id = ?1')
+      .bind(squatter.id)
+      .first();
+    const empty = !squatter.google_sub && (scores?.n || 0) === 0;
+    statements.push(
+      empty
+        ? db.prepare('DELETE FROM players WHERE id = ?1').bind(squatter.id)
+        : db.prepare('UPDATE players SET device_id = NULL WHERE id = ?1').bind(squatter.id),
+    );
+  }
+
+  statements.push(
+    db
+      .prepare(
+        `UPDATE players
+            SET device_id = ?2, recovery_hash = NULL, recovery_issued_at = NULL,
+                session_epoch = session_epoch + 1, last_seen_at = ?3
+          WHERE id = ?1`,
+      )
+      .bind(player.id, deviceId, now),
+  );
+
+  await db.batch(statements);
+  return getPlayer(db, player.id);
+}

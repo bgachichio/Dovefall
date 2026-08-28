@@ -135,6 +135,60 @@ func _on_run_submitted(code: int, body: Dictionary) -> void:
 		online = false
 
 
+# ------------------------------------------------------------------ identity ops
+
+## NOT set_name(): Node already has one, and shadowing it breaks the scene tree
+## in ways that surface a long way from here.
+func set_player_name(new_name: String) -> void:
+	if not enabled() or token == "":
+		return
+	_put("/v1/me/name", {"name": new_name}, _on_name_saved)
+
+
+func _on_name_saved(code: int, body: Dictionary) -> void:
+	if code == 200 and body.has("player"):
+		player = body["player"]
+		signed_in.emit(player)
+	else:
+		sign_in_failed.emit(str(body.get("message", "Could not save that name.")))
+
+
+## `done` is called with the code, or "" if it could not be obtained. The code
+## is never stored locally — showing it once is the whole contract.
+func issue_recovery_code(done: Callable) -> void:
+	if not enabled() or token == "":
+		done.call("")
+		return
+	_post("/v1/recovery/issue", {}, _on_code_issued.bind(done), true)
+
+
+func _on_code_issued(code: int, body: Dictionary, done: Callable) -> void:
+	done.call(str(body.get("code", "")) if code == 200 else "")
+
+
+## `done` is called with (ok, message).
+func claim_recovery_code(entered: String, done: Callable) -> void:
+	if not enabled():
+		done.call(false, "This build has no server configured.")
+		return
+	_post("/v1/recovery/claim",
+		{"code": entered, "device_id": SaveData.install_id()},
+		_on_code_claimed.bind(done))
+
+
+func _on_code_claimed(code: int, body: Dictionary, done: Callable) -> void:
+	if code == 200 and body.has("token"):
+		token = str(body["token"])
+		_write_token()
+		player = body.get("player", {})
+		online = true
+		signed_in.emit(player)
+		done.call(true, "Restored. Welcome back.")
+		_flush_queue()
+		return
+	done.call(false, str(body.get("message", "That code was not accepted.")))
+
+
 # ------------------------------------------------------------------ boards
 
 func load_board(mode: String) -> void:

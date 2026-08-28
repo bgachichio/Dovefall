@@ -17,6 +17,7 @@ The D1 database exists on your account and carries the schema:
 | ID | `b0aa203a-2e22-466c-b0b2-a9013956608f` |
 | Primary region | WEUR (Amsterdam) |
 | Tables | `players`, `bests`, `daily`, `saves`, `rejects` |
+| Migrations applied | `0001_init.sql`, `0002_identity.sql` |
 
 `worker/wrangler.toml` already points at it. Nothing below re-creates it.
 
@@ -31,12 +32,12 @@ npm install
 npm test
 ```
 
-**You should see** `# pass 51`, `# fail 0`.
+**You should see** `# pass 68`, `# fail 0`.
 
-The first test is the one that matters:
+One test matters more than the rest:
 
 ```
-ok 43 - determinism checksum matches the Godot build
+ok NN - determinism checksum matches the Godot build
 ```
 
 That asserts the server's port of `Rng.gd` reproduces `4075699207` — the number
@@ -169,6 +170,18 @@ What the patches do:
 | `autoload-SaveData.patch` | `OS.get_unique_id()` returns an empty string on Web, which gave every browser player the shared key `"dovefall-"`. Replaced with a per-install id. **On Android the native id is reused verbatim, so existing saves still decrypt.** |
 | `export_presets.patch` | Excludes `store/*` — 144 KB of Play listing artwork that no player sees. |
 | `project.patch` | Registers the `Net` autoload, last, after `SaveData`. |
+| `ui-UiKit.patch` | Adds `field()` and `field_display()` — the only places a player types. |
+| `autoload-Config.patch` | Eleven new strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
+| `ui-TitleScreen.patch` | A Credits button beside Leaderboard. |
+| `ui-SettingsScreen.patch` | An account entry point in the existing Account section. |
+| `scripts-Main.patch` | Routing for the two new screens. |
+
+Two new screens are whole files, not patches — copy them in:
+
+```bash
+cp ../skills/dovefall/godot/ui/CreditsScreen.gd  ui/
+cp ../skills/dovefall/godot/ui/IdentityScreen.gd ui/
+```
 
 Then set the API base in `autoload/Net.gd`:
 

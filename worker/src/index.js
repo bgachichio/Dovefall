@@ -10,6 +10,9 @@
 //   POST   /v1/auth/link     { id_token }              (auth)
 //   GET    /v1/me                                      (auth)
 //   DELETE /v1/me                                      (auth)
+//   PUT    /v1/me/name           { name }              (auth)
+//   POST   /v1/recovery/issue                          (auth)
+//   POST   /v1/recovery/claim    { code, device_id }
 //   GET    /v1/save                                    (auth)
 //   PUT    /v1/save          { rev, blob }             (auth)
 //   POST   /v1/runs          { mode, score, ... }      (auth)
@@ -17,7 +20,10 @@
 //   GET    /v1/board/daily   ?day=YYYY-MM-DD
 
 import { json, fail, readJson, corsHeaders, HttpError } from './http.js';
-import { issueSession, readSession, bearer, verifyGoogleIdToken, cleanName } from './auth.js';
+import {
+  issueSession, readSession, bearer, verifyGoogleIdToken, cleanName,
+  tagFor, mintRecoveryCode, normaliseRecoveryCode, hashRecoveryCode,
+} from './auth.js';
 import { checkRun, REASONS } from './bounds.js';
 import { isMode, MODE_ORDER } from './config.js';
 import { todayKey, dailySeed, parseSeedCode, seedCode } from './rng.js';
@@ -28,6 +34,7 @@ const MAX_SAVE_BYTES = 8 * 1024;
 const MAX_FLAP_TICKS_BYTES = 4 * 1024;
 const SAVE_MIN_INTERVAL_S = 30;
 const LAST_SEEN_STALE_S = 86400;
+const DEVICE_ID_RE = /^[0-9a-fA-F-]{16,64}$/;
 
 export default {
   async fetch(request, env, ctx) {
@@ -64,7 +71,7 @@ async function route(request, env, ctx) {
   if (path === '/v1/auth/guest' && method === 'POST') {
     const body = await readJson(request);
     const deviceId = typeof body.device_id === 'string' ? body.device_id.trim() : '';
-    if (!/^[0-9a-fA-F-]{16,64}$/.test(deviceId)) {
+    if (!DEVICE_ID_RE.test(deviceId)) {
       return fail(400, 'bad_device_id', 'A device id is required.', ctx);
     }
     let player = await store.findByDeviceId(db, deviceId);
@@ -78,7 +85,7 @@ async function route(request, env, ctx) {
     } else {
       await maybeTouch(db, player, now);
     }
-    return json({ token: await issueSession(player.id, env), player: publicPlayer(player) }, ctx);
+    return json({ token: await sessionFor(player, env), player: publicPlayer(player) }, ctx);
   }
 
   if (path === '/v1/auth/google' && method === 'POST') {
@@ -95,7 +102,7 @@ async function route(request, env, ctx) {
     } else {
       await maybeTouch(db, player, now);
     }
-    return json({ token: await issueSession(player.id, env), player: publicPlayer(player) }, ctx);
+    return json({ token: await sessionFor(player, env), player: publicPlayer(player) }, ctx);
   }
 
   if (path === '/v1/auth/link' && method === 'POST') {
@@ -110,7 +117,7 @@ async function route(request, env, ctx) {
       // way to lose someone's record — hand back the established account.
       return json(
         {
-          token: await issueSession(existing.id, env),
+          token: await sessionFor(existing, env),
           player: publicPlayer(existing),
           merged: false,
           note: 'This Google account already has progress. Signed in to it.',
@@ -130,6 +137,54 @@ async function route(request, env, ctx) {
     const player = await requirePlayer(request, env, db, ctx);
     const bests = await store.getBests(db, player.id);
     return json({ player: publicPlayer(player), bests }, ctx);
+  }
+
+  if (path === '/v1/me/name' && method === 'PUT') {
+    const player = await requirePlayer(request, env, db, ctx);
+    const body = await readJson(request);
+    const name = cleanName(body.name, '');
+    if (name === '') {
+      return fail(400, 'bad_name', 'Pick a name with at least one visible character.', ctx);
+    }
+    await store.setName(db, player.id, name);
+    return json({ player: publicPlayer({ ...player, name }) }, ctx);
+  }
+
+  // ---------------------------------------------------------------- recovery
+  //
+  // The email-free answer to "I got a new phone". The player writes the code
+  // down; we keep only its hash, so a copy of this database does not let anyone
+  // take over an account.
+
+  if (path === '/v1/recovery/issue' && method === 'POST') {
+    const player = await requirePlayer(request, env, db, ctx);
+    const code = mintRecoveryCode();
+    await store.setRecovery(db, player.id, await hashRecoveryCode(normaliseRecoveryCode(code)), now);
+    return json(
+      {
+        code,
+        note: 'Write this down. It is shown once, works once, and is the only way '
+          + 'back into this account on a new device.',
+      },
+      ctx,
+    );
+  }
+
+  if (path === '/v1/recovery/claim' && method === 'POST') {
+    const body = await readJson(request);
+    const normalised = normaliseRecoveryCode(body.code);
+    const deviceId = typeof body.device_id === 'string' ? body.device_id.trim() : '';
+
+    if (!normalised) return fail(400, 'bad_code', 'That does not look like a recovery code.', ctx);
+    if (!DEVICE_ID_RE.test(deviceId)) return fail(400, 'bad_device_id', 'A device id is required.', ctx);
+
+    const found = await store.findByRecoveryHash(db, await hashRecoveryCode(normalised));
+    if (!found) {
+      return fail(404, 'no_such_code', 'That code is not valid. A code works only once.', ctx);
+    }
+
+    const moved = await store.claimRecovery(db, found, deviceId, now);
+    return json({ token: await sessionFor(moved, env), player: publicPlayer(moved) }, ctx);
   }
 
   if (path === '/v1/me' && method === 'DELETE') {
@@ -268,11 +323,22 @@ function limitParam(url) {
 
 /** Boards are public, so they carry a display name and a score and nothing else. */
 function entry(row, i) {
-  return { rank: i + 1, name: row.name, score: row.score, at: row.achieved_at };
+  return { rank: i + 1, name: row.name, tag: tagFor(row.player_id), score: row.score, at: row.achieved_at };
+}
+
+function sessionFor(player, env) {
+  return issueSession(player.id, env, Number(player.session_epoch) || 1);
 }
 
 function publicPlayer(p) {
-  return { id: p.id, name: p.name, guest: !p.google_sub, created_at: p.created_at };
+  return {
+    id: p.id,
+    name: p.name,
+    tag: tagFor(p.id),
+    guest: !p.google_sub,
+    has_recovery_code: !!p.recovery_hash,
+    created_at: p.created_at,
+  };
 }
 
 async function requirePlayer(request, env, db, ctx) {
@@ -280,6 +346,9 @@ async function requirePlayer(request, env, db, ctx) {
   if (!session) throw new HttpError(401, 'unauthenticated', 'Sign in to continue.');
   const player = await store.getPlayer(db, session.playerId);
   if (!player) throw new HttpError(401, 'unknown_player', 'This session is no longer valid.');
+  if (session.epoch !== (Number(player.session_epoch) || 1)) {
+    throw new HttpError(401, 'session_superseded', 'This account was restored on another device.');
+  }
   return player;
 }
 

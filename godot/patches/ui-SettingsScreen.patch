@@ -1,0 +1,23 @@
+--- a/ui/SettingsScreen.gd
++++ b/ui/SettingsScreen.gd
+@@ -8,6 +8,7 @@
+ ## no confirmation dialogue.
+ 
+ signal closed
++signal identity_pressed
+ 
+ const PRIVACY_URL := "https://gachichio.org/dovefall/privacy"
+ const TERMS_URL := "https://gachichio.org/dovefall/terms"
+@@ -76,6 +77,12 @@
+ 
+ 	# ------------------------------------------------------------- account
+ 	col.add_child(UiKit.section(Config.t("account")))
++	var idb := UiKit.button(Config.t("playername"))
++	idb.pressed.connect(func(): identity_pressed.emit())
++	col.add_child(idb)
++	col.add_child(UiKit.note(
++		"Your name, and the recovery code that gets your progress onto a new "
++		+ "phone. Dovefall never asks for an email address."))
+ 	var pg := UiKit.button(Config.t("playgames"))
+ 	pg.pressed.connect(func(): _todo("Play Games Services — phase 4"))
+ 	col.add_child(pg)

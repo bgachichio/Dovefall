@@ -9,6 +9,12 @@ test('a freshly issued session verifies', async () => {
   const token = await issueSession('player-1', env);
   const s = await readSession(token, env);
   assert.equal(s.playerId, 'player-1');
+  assert.equal(s.epoch, 1);
+});
+
+test('the session carries the epoch it was minted at', async () => {
+  const s = await readSession(await issueSession('player-1', env, 7), env);
+  assert.equal(s.epoch, 7);
 });
 
 test('a token signed with another secret is refused', async () => {
@@ -28,7 +34,7 @@ test('a tampered payload is refused', async () => {
 
 test('an expired session is refused', async () => {
   const past = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 400;
-  const token = await issueSession('player-1', env, past);
+  const token = await issueSession('player-1', env, 1, past);
   assert.equal(await readSession(token, env), null);
 });
 
