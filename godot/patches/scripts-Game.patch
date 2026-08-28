@@ -227,7 +227,32 @@
  
  
  func _step_parts(dt: float, spd: float) -> void:
-@@ -693,6 +819,31 @@
+@@ -468,6 +594,16 @@
+ 	_build_pal()
+ 
+ 
++## The viewport is pinned to 1080x1920 ("keep"), so every screen that is not
++## exactly 9:16 shows letterbox bars painted with the window's clear colour.
++## Following the sky here means those bars read as part of the world rather
++## than as a frame around it — including through the chapter cross-fades.
++## Called once per drawn frame, at the end of _draw().
++func _sync_clear_colour() -> void:
++	if pal.has("sky"):
++		RenderingServer.set_default_clear_color(pal["sky"])
++
++
+ func _build_pal() -> void:
+ 	var a: Dictionary = Config.CHAPTERS[pal_from]
+ 	var b: Dictionary = Config.CHAPTERS[pal_to]
+@@ -517,6 +653,7 @@
+ 
+ 	_draw_dove()
+ 	_draw_hud()
++	_sync_clear_colour()
+ 
+ 
+ func _draw_sky_bodies() -> void:
+@@ -693,6 +830,31 @@
  				Vector2(bx + _vw * 0.062, by + _vw * 0.030),
  				Vector2(bx + _vw * 0.030, by + _vw * 0.044)]), Color(0, 0, 0, 0.75))
  			_num("+1", _vw * 0.60, _vh * 0.735, _vw * 0.045, Config.GOLD)

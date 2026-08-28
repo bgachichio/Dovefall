@@ -16,8 +16,8 @@ The D1 database exists on your account and carries the schema:
 | Database | `dovefall` |
 | ID | `b0aa203a-2e22-466c-b0b2-a9013956608f` |
 | Primary region | WEUR (Amsterdam) |
-| Tables | `players`, `bests`, `daily`, `saves`, `rejects` |
-| Migrations applied | `0001_init.sql`, `0002_identity.sql`, `0003_respawns.sql` |
+| Tables | `players`, `devices`, `bests`, `daily`, `saves`, `rejects`, `payments` |
+| Migrations applied | `0001_init.sql`, `0002_identity.sql`, `0003_respawns.sql`, `0004_devices.sql` |
 
 `worker/wrangler.toml` already points at it. Nothing below re-creates it.
 
@@ -32,7 +32,7 @@ npm install
 npm test
 ```
 
-**You should see** `# pass 86`, `# fail 0`.
+**You should see** `# pass 96`, `# fail 0`.
 
 One test matters more than the rest:
 
@@ -174,7 +174,7 @@ What the patches do:
 | `scripts-Game.patch` | Flap on the physics tick + replay log (as before), and now: the ♥ band on the death panel (filled = respawns held, empty = opens the shop), the interactive tutorial (one free respawn, a pulsing arrow, ends on the second death), and `respawn_used` on every submission. Tutorial runs never leave the device. |
 | `autoload-SaveData.patch` | `OS.get_unique_id()` returns an empty string on Web, which gave every browser player the shared key `"dovefall-"`. Replaced with a per-install id. **On Android the native id is reused verbatim, so existing saves still decrypt.** |
 | `export_presets.patch` | Excludes `store/*` — 144 KB of Play listing artwork that no player sees. |
-| `project.patch` | Registers the `Net` autoload, last, after `SaveData`. |
+| `project.patch` | Registers the `Net` autoload, **and changes `stretch/aspect` from `expand` to `keep`** — the fix that makes every screen render the identical game. See `patches/07-playfield-fairness.md`; without it the game is broken in landscape. |
 | `ui-UiKit.patch` | Adds `field()` and `field_display()` — the only places a player types. |
 | `autoload-Config.patch` | Twenty-three new strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
 | `ui-TitleScreen.patch` | A Credits button beside Leaderboard. |
@@ -209,10 +209,10 @@ const API_BASE := "https://dovefall-api.<subdomain>.workers.dev"
 Leaving it `""` is a valid state: the game plays exactly as before, entirely
 offline. That is the fallback if anything below goes wrong.
 
-**Read `godot/patches/07-playfield-fairness.md` before you open the
-leaderboard to anyone.** It is the one change I did not write for you, and it
-is the difference between a fair board and one that quietly favours tall
-phones.
+**Screen independence is now fixed** (`patches/07-playfield-fairness.md`), so
+the board is fair by construction. Verify it on device with the check in that
+file: the first three gate heights for a fixed seed must match on the Pixel, on
+the desktop, and in a resized browser window.
 
 **You should see** the project open with no `SCRIPT ERROR` in the import log,
 and `checksum : 4075699207` on boot. These are ~100 lines of GDScript that have

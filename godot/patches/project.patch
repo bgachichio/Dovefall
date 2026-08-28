@@ -1,6 +1,6 @@
 --- a/project.godot
 +++ b/project.godot
-@@ -24,6 +24,8 @@
+@@ -24,13 +24,28 @@
  Sfx="*res://autoload/Sfx.gd"
  Music="*res://autoload/Music.gd"
  Analytics="*res://autoload/Analytics.gd"
@@ -8,4 +8,25 @@
 +Net="*res://autoload/Net.gd"
  
  [display]
+ 
+ window/size/viewport_width=1080
+ window/size/viewport_height=1920
+ window/stretch/mode="canvas_items"
+-window/stretch/aspect="expand"
++
++; CRITICAL 5 — "keep", never "expand".
++;
++; With "expand" the viewport grows to match the window, so _vw/_vh differ on
++; every device and every calculation derived from them differs too. Measured:
++; a 20:9 phone got 76% more gate-placement range than 16:9, and a 16:9 LAPTOP
++; produced a 3413-wide viewport, a 1072 px dove and a NEGATIVE placement band —
++; every gate at the same height. The game was unplayable in landscape.
++;
++; "keep" pins the viewport at exactly 1080x1920 on every screen and letterboxes
++; the remainder. Every device now flies the identical course from a seed, which
++; is also what makes the leaderboard fair. Game.gd tints the letterbox to the
++; current chapter's sky so the bars read as part of the world, not as bars.
++window/stretch/aspect="keep"
+ window/handheld/orientation=1
+ window/energy_saving/keep_screen_on=true
  

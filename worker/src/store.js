@@ -11,33 +11,38 @@ export async function findByGoogleSub(db, sub) {
   return db.prepare('SELECT * FROM players WHERE google_sub = ?1').bind(sub).first();
 }
 
+/** Resolve a device to its owner. The binding lives in `devices`, not on the player. */
 export async function findByDeviceId(db, deviceId) {
-  return db.prepare('SELECT * FROM players WHERE device_id = ?1').bind(deviceId).first();
+  return db
+    .prepare(
+      `SELECT p.* FROM players p JOIN devices d ON d.player_id = p.id
+        WHERE d.device_id = ?1`,
+    )
+    .bind(deviceId)
+    .first();
 }
 
 export async function createPlayer(db, { id, googleSub = null, deviceId = null, name, now }) {
   await db
     .prepare(
-      `INSERT INTO players (id, google_sub, device_id, name, created_at, last_seen_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?5)`,
+      `INSERT INTO players (id, google_sub, name, created_at, last_seen_at)
+       VALUES (?1, ?2, ?3, ?4, ?4)`,
     )
-    .bind(id, googleSub, deviceId, name, now)
+    .bind(id, googleSub, name, now)
     .run();
+  if (deviceId) await attachDevice(db, id, deviceId, now);
   return getPlayer(db, id);
 }
 
 /**
  * Attach a Google identity to an existing (guest) player.
  *
- * The device_id is cleared on link, so the guest handle cannot later be used to
- * re-enter an account that now has a real owner.
+ * Device bindings survive the link — the phone you were playing on is still
+ * yours afterwards. Signing in is an upgrade, not a handover.
  */
 export async function linkGoogle(db, playerId, googleSub, name) {
   await db
-    .prepare(
-      `UPDATE players SET google_sub = ?2, device_id = NULL, name = COALESCE(?3, name)
-       WHERE id = ?1`,
-    )
+    .prepare('UPDATE players SET google_sub = ?2, name = COALESCE(?3, name) WHERE id = ?1')
     .bind(playerId, googleSub, name)
     .run();
   return getPlayer(db, playerId);
@@ -212,33 +217,31 @@ export async function findByRecoveryHash(db, hash) {
  */
 export async function claimRecovery(db, player, deviceId, now) {
   const squatter = await findByDeviceId(db, deviceId);
-  const statements = [];
 
+  // An empty throwaway guest on the new device is cleared away; one that has
+  // scores is left alone and merely loses this device. Never destroy progress.
   if (squatter && squatter.id !== player.id) {
     const scores = await db
       .prepare('SELECT COUNT(*) AS n FROM bests WHERE player_id = ?1')
       .bind(squatter.id)
       .first();
-    const empty = !squatter.google_sub && (scores?.n || 0) === 0;
-    statements.push(
-      empty
-        ? db.prepare('DELETE FROM players WHERE id = ?1').bind(squatter.id)
-        : db.prepare('UPDATE players SET device_id = NULL WHERE id = ?1').bind(squatter.id),
-    );
+    const otherDevices = (await countDevices(db, squatter.id)) - 1;
+    if (!squatter.google_sub && (scores?.n || 0) === 0 && otherDevices <= 0) {
+      await db.prepare('DELETE FROM players WHERE id = ?1').bind(squatter.id).run();
+    }
   }
 
-  statements.push(
-    db
-      .prepare(
-        `UPDATE players
-            SET device_id = ?2, recovery_hash = NULL, recovery_issued_at = NULL,
-                session_epoch = session_epoch + 1, last_seen_at = ?3
-          WHERE id = ?1`,
-      )
-      .bind(player.id, deviceId, now),
-  );
+  await db
+    .prepare(
+      `UPDATE players
+          SET recovery_hash = NULL, recovery_issued_at = NULL,
+              session_epoch = session_epoch + 1, last_seen_at = ?2
+        WHERE id = ?1`,
+    )
+    .bind(player.id, now)
+    .run();
 
-  await db.batch(statements);
+  await attachDevice(db, player.id, deviceId, now);
   return getPlayer(db, player.id);
 }
 
@@ -282,4 +285,97 @@ export async function recordPayment(db, { reference, playerId, amount, currency,
     .bind(reference, playerId, amount, currency, status, rawCode, now)
     .run();
   return (res.meta?.changes || 0) > 0;
+}
+
+
+// ---------------------------------------------------------------- devices
+
+export const MAX_DEVICES = 2;
+
+export async function listDevices(db, playerId) {
+  const { results } = await db
+    .prepare('SELECT device_id, first_seen, last_seen FROM devices WHERE player_id = ?1 ORDER BY last_seen DESC')
+    .bind(playerId)
+    .all();
+  return results || [];
+}
+
+export async function countDevices(db, playerId) {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM devices WHERE player_id = ?1')
+    .bind(playerId)
+    .first();
+  return Number(row?.n) || 0;
+}
+
+/**
+ * Bind a device to a player, capped at MAX_DEVICES.
+ *
+ * Returns { attached, evicted, alreadyMine }. When the cap is exceeded the
+ * device used longest ago is evicted; the caller bumps the session epoch so
+ * that device is signed out rather than left holding a working token.
+ *
+ * A device already bound elsewhere is moved, not duplicated: entering your
+ * recovery code on a friend's phone should take that phone, and the PRIMARY
+ * KEY on device_id makes any other outcome impossible anyway.
+ */
+export async function attachDevice(db, playerId, deviceId, now) {
+  const existing = await db
+    .prepare('SELECT player_id FROM devices WHERE device_id = ?1')
+    .bind(deviceId)
+    .first();
+
+  if (existing && existing.player_id === playerId) {
+    await db
+      .prepare('UPDATE devices SET last_seen = ?2 WHERE device_id = ?1')
+      .bind(deviceId, now)
+      .run();
+    return { attached: false, evicted: null, alreadyMine: true };
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO devices (device_id, player_id, first_seen, last_seen)
+       VALUES (?1, ?2, ?3, ?3)
+       ON CONFLICT(device_id) DO UPDATE SET
+         player_id = excluded.player_id, first_seen = excluded.first_seen,
+         last_seen = excluded.last_seen`,
+    )
+    .bind(deviceId, playerId, now)
+    .run();
+
+  let evicted = null;
+  if ((await countDevices(db, playerId)) > MAX_DEVICES) {
+    const oldest = await db
+      .prepare(
+        `SELECT device_id FROM devices WHERE player_id = ?1 AND device_id != ?2
+          ORDER BY last_seen ASC LIMIT 1`,
+      )
+      .bind(playerId, deviceId)
+      .first();
+    if (oldest) {
+      await db.prepare('DELETE FROM devices WHERE device_id = ?1').bind(oldest.device_id).run();
+      evicted = oldest.device_id;
+    }
+  }
+  return { attached: true, evicted, alreadyMine: false };
+}
+
+export async function detachDevice(db, playerId, deviceId) {
+  const res = await db
+    .prepare('DELETE FROM devices WHERE player_id = ?1 AND device_id = ?2')
+    .bind(playerId, deviceId)
+    .run();
+  return (res.meta?.changes || 0) > 0;
+}
+
+export async function bumpEpoch(db, playerId) {
+  await db
+    .prepare('UPDATE players SET session_epoch = session_epoch + 1 WHERE id = ?1')
+    .bind(playerId)
+    .run();
+}
+
+export async function touchDevice(db, deviceId, now) {
+  await db.prepare('UPDATE devices SET last_seen = ?2 WHERE device_id = ?1').bind(deviceId, now).run();
 }

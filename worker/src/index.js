@@ -13,6 +13,8 @@
 //   PUT    /v1/me/name           { name }              (auth)
 //   POST   /v1/recovery/issue                          (auth)
 //   POST   /v1/recovery/claim    { code, device_id }
+//   GET    /v1/devices                                 (auth)
+//   DELETE /v1/devices           { device_id }         (auth)
 //   GET    /v1/save                                    (auth)
 //   PUT    /v1/save          { rev, blob }             (auth)
 //   POST   /v1/runs          { mode, score, ... }      (auth)
@@ -92,6 +94,7 @@ async function route(request, env, ctx) {
         now,
       });
     } else {
+      await store.touchDevice(db, deviceId, now);
       await maybeTouch(db, player, now);
     }
     return json({ token: await sessionFor(player, env), player: publicPlayer(player) }, ctx);
@@ -100,6 +103,8 @@ async function route(request, env, ctx) {
   if (path === '/v1/auth/google' && method === 'POST') {
     const body = await readJson(request);
     const { sub, name } = await verifyGoogleIdToken(body.id_token, env);
+    const deviceId = typeof body.device_id === 'string' ? body.device_id.trim() : '';
+
     let player = await store.findByGoogleSub(db, sub);
     if (!player) {
       player = await store.createPlayer(db, {
@@ -111,7 +116,26 @@ async function route(request, env, ctx) {
     } else {
       await maybeTouch(db, player, now);
     }
-    return json({ token: await sessionFor(player, env), player: publicPlayer(player) }, ctx);
+
+    // The device signing in joins the account, up to the cap.
+    let evicted = null;
+    if (DEVICE_ID_RE.test(deviceId)) {
+      const r = await store.attachDevice(db, player.id, deviceId, now);
+      evicted = r.evicted;
+      if (evicted) {
+        // Sign the evicted device out for real rather than merely forgetting it.
+        await store.bumpEpoch(db, player.id);
+        player = await store.getPlayer(db, player.id);
+      }
+    }
+    return json(
+      {
+        token: await sessionFor(player, env),
+        player: publicPlayer(player),
+        device_evicted: evicted !== null,
+      },
+      ctx,
+    );
   }
 
   if (path === '/v1/auth/link' && method === 'POST') {
@@ -289,13 +313,62 @@ async function route(request, env, ctx) {
     }
 
     const moved = await store.claimRecovery(db, found, deviceId, now);
-    return json({ token: await sessionFor(moved, env), player: publicPlayer(moved) }, ctx);
+    const devices = await store.listDevices(db, moved.id);
+    return json(
+      {
+        token: await sessionFor(moved, env),
+        player: publicPlayer(moved),
+        devices: devices.length,
+      },
+      ctx,
+    );
   }
 
   if (path === '/v1/me' && method === 'DELETE') {
     const player = await requirePlayer(request, env, db, ctx);
     await store.deletePlayer(db, player.id);
     return json({ deleted: true }, ctx);
+  }
+
+  // ---------------------------------------------------------------- devices
+  //
+  // Two per account. The third one in evicts the one used longest ago, and the
+  // epoch bump above means the evicted device is signed out, not just dropped.
+
+  if (path === '/v1/devices' && method === 'GET') {
+    const player = await requirePlayer(request, env, db, ctx);
+    const devices = await store.listDevices(db, player.id);
+    const mine = bearerDevice(request);
+    return json(
+      {
+        max: store.MAX_DEVICES,
+        devices: devices.map((d) => ({
+          // Never echo a device id back in full: it is a bearer-ish handle for
+          // guest sign-in. Four characters is enough to tell two phones apart.
+          id_hint: String(d.device_id).slice(-4).toUpperCase(),
+          this_device: mine === d.device_id,
+          first_seen: d.first_seen,
+          last_seen: d.last_seen,
+        })),
+      },
+      ctx,
+    );
+  }
+
+  if (path === '/v1/devices' && method === 'DELETE') {
+    const player = await requirePlayer(request, env, db, ctx);
+    const body = await readJson(request);
+    const deviceId = typeof body.device_id === 'string' ? body.device_id.trim() : '';
+    if (!DEVICE_ID_RE.test(deviceId)) return fail(400, 'bad_device_id', 'A device id is required.', ctx);
+    const removed = await store.detachDevice(db, player.id, deviceId);
+    if (!removed) return json({ removed: false }, ctx);
+
+    // The epoch is per-account, so bumping it signs out every device — this one
+    // included. Hand the caller a token minted at the NEW epoch so the device
+    // doing the removing stays signed in and only the others are kicked.
+    await store.bumpEpoch(db, player.id);
+    const fresh = await store.getPlayer(db, player.id);
+    return json({ removed: true, token: await sessionFor(fresh, env) }, ctx);
   }
 
   // ---------------------------------------------------------------- save
@@ -460,6 +533,13 @@ async function requirePlayer(request, env, db, ctx) {
 }
 
 /** One write per player per day at most, rather than one per request. */
+/** The caller may name the device it is speaking from, for "this device" hints. */
+function bearerDevice(request) {
+  const h = request.headers.get('x-dovefall-device') || '';
+  return DEVICE_ID_RE.test(h.trim()) ? h.trim() : null;
+}
+
+
 async function maybeTouch(db, player, now) {
   if (now - player.last_seen_at > LAST_SEEN_STALE_S) {
     await store.touchLastSeen(db, player.id, now);

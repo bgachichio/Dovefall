@@ -186,8 +186,9 @@ test('restoring onto a device with an empty guest clears it away', async () => {
 
   const gone = env.DB._raw.prepare('SELECT COUNT(*) AS n FROM players WHERE id = ?').get(throwaway.player.id);
   assert.equal(gone.n, 0, 'an empty throwaway guest should not linger');
-  const owner = env.DB._raw.prepare('SELECT device_id FROM players WHERE id = ?').get(old.player.id);
-  assert.equal(owner.device_id, DEV_B);
+  const owner = env.DB._raw
+    .prepare('SELECT player_id FROM devices WHERE device_id = ?').get(DEV_B);
+  assert.equal(owner.player_id, old.player.id, 'the new device now belongs to the restored account');
 });
 
 test('a guest with scores is unbound, never destroyed', async () => {
@@ -203,9 +204,11 @@ test('a guest with scores is unbound, never destroyed', async () => {
 
   await call(worker, env, 'POST', '/v1/recovery/claim', { body: { code: issued.code, device_id: DEV_B } });
 
-  const kept = env.DB._raw.prepare('SELECT device_id FROM players WHERE id = ?').get(other.player.id);
+  const kept = env.DB._raw.prepare('SELECT id FROM players WHERE id = ?').get(other.player.id);
   assert.ok(kept, 'a player with scores must survive');
-  assert.equal(kept.device_id, null, 'but its device binding moves on');
+  const stillMine = env.DB._raw
+    .prepare('SELECT COUNT(*) AS n FROM devices WHERE player_id = ?').get(other.player.id);
+  assert.equal(stillMine.n, 0, 'but its device binding moves on');
 });
 
 test('issuing a code requires being signed in', async () => {
