@@ -1,0 +1,11 @@
+--- a/project.godot
++++ b/project.godot
+@@ -24,6 +24,8 @@
+ Sfx="*res://autoload/Sfx.gd"
+ Music="*res://autoload/Music.gd"
+ Analytics="*res://autoload/Analytics.gd"
++; Net comes last: it reads SaveData and Config at _ready().
++Net="*res://autoload/Net.gd"
+ 
+ [display]
+ 

@@ -1,0 +1,17 @@
+{
+  "name": "dovefall-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dovefall free-to-play API: accounts, cloud save and leaderboards on Cloudflare Workers + D1.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 execute dovefall --local --file=schema/0001_init.sql",
+    "migrate:remote": "wrangler d1 execute dovefall --remote --file=schema/0001_init.sql"
+  },
+  "devDependencies": {
+    "wrangler": "4.42.0"
+  }
+}

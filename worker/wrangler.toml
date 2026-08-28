@@ -1,0 +1,23 @@
+# Dovefall API — Cloudflare Worker.
+#
+# Secrets are NEVER written here. Set them with `wrangler secret put`:
+#   SESSION_SECRET     — 32+ random bytes; rotating it signs every player out
+#   GOOGLE_CLIENT_IDS  — comma-separated OAuth client IDs (web + Android)
+
+name = "dovefall-api"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+[vars]
+# Origins allowed to call this API from a browser. The Android build sends no
+# Origin header and is unaffected. Never "*" — this API carries a bearer token.
+ALLOWED_ORIGINS = "https://dovefall.pages.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dovefall"
+database_id = "b0aa203a-2e22-466c-b0b2-a9013956608f"

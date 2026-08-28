@@ -1,0 +1,63 @@
+--- a/autoload/SaveData.gd
++++ b/autoload/SaveData.gd
+@@ -67,11 +67,59 @@
+ 	f.close()
+ 
+ 
++const INSTALL_ID_PATH := "user://install.id"
++
++var _cached_install_id := ""
++
++
++## A stable per-install identifier.
++##
++## OS.get_unique_id() is implemented on Android and iOS only. On Web it returns
++## an EMPTY STRING and pushes an error, which would hand every browser player
++## the identical key "dovefall-" — publicly derivable and shared. So we keep our
++## own id beside the save.
++##
++## On Android the native id is reused verbatim, so the key this produces is
++## byte-identical to the previous one and existing saves still decrypt. That is
++## deliberate: changing it would silently wipe every installed player's
++## progress.
++func install_id() -> String:
++	if _cached_install_id != "":
++		return _cached_install_id
++
++	if FileAccess.file_exists(INSTALL_ID_PATH):
++		var f := FileAccess.open(INSTALL_ID_PATH, FileAccess.READ)
++		if f != null:
++			var existing := f.get_as_text().strip_edges()
++			f.close()
++			if existing.length() >= 16:
++				_cached_install_id = existing
++				return _cached_install_id
++
++	_cached_install_id = _mint_install_id()
++	var w := FileAccess.open(INSTALL_ID_PATH, FileAccess.WRITE)
++	if w != null:
++		w.store_string(_cached_install_id)
++		w.close()
++	return _cached_install_id
++
++
++func _mint_install_id() -> String:
++	var native := OS.get_unique_id()
++	if native.length() >= 16:
++		return native
++	# Web and desktop: 128 bits from the platform CSPRNG, shaped as a uuid so the
++	# server accepts it as a device id without special-casing.
++	var h := Crypto.new().generate_random_bytes(16).hex_encode()
++	return "%s-%s-%s-%s-%s" % [h.substr(0, 8), h.substr(8, 4), h.substr(12, 4),
++		h.substr(16, 4), h.substr(20, 12)]
++
++
+ ## Derived per install. Defeats casual save editing, which is the whole
+ ## realistic threat model. Not a defence against a determined attacker —
+ ## for that, validate scores server-side using the run seed.
+ func _key() -> String:
+-	return "dovefall-" + OS.get_unique_id().substr(0, 16)
++	return "dovefall-" + install_id().substr(0, 16)
+ 
+ 
+ func _migrate(incoming: Dictionary) -> void:

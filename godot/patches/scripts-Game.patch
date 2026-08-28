@@ -1,0 +1,112 @@
+--- a/scripts/Game.gd
++++ b/scripts/Game.gd
+@@ -28,6 +28,15 @@
+ var flash := 0.0
+ var since_flap := 99.0
+ var dead_at := 0
++
++# ---- replay log ----
++## The flap is applied on the physics tick, not on the input event, so a run is
++## a pure function of (seed, mode, these tick indices). Without that the tap
++## lands at a moment that depends on the display's refresh rate and the run
++## cannot be reconstructed by anyone but the device that played it.
++var _tick := 0
++var _flap_queued := false
++var _flap_ticks: PackedInt32Array = PackedInt32Array()
+ var death_cause := "gate"
+ var run_started_ms := 0
+ 
+@@ -88,6 +97,9 @@
+ 	st = St.READY
+ 	score = 0
+ 	run_feathers = 0
++	_tick = 0
++	_flap_queued = false
++	_flap_ticks = PackedInt32Array()
+ 	y = _vh * 0.42
+ 	vy = 0.0
+ 	rot = 0.0
+@@ -219,9 +231,9 @@
+ 		St.READY:
+ 			st = St.PLAY
+ 			run_started_ms = Time.get_ticks_msec()
+-			_flap()
++			_queue_flap()
+ 		St.PLAY:
+-			_flap()
++			_queue_flap()
+ 		St.DEAD:
+ 			if Time.get_ticks_msec() - dead_at < Config.RESTART_MS:
+ 				return
+@@ -241,12 +253,34 @@
+ 	return 0.0
+ 
+ 
++## Feedback still fires HERE, on the input event — that is the 30 ms budget, and
++## deferring it to the tick would add up to 8 ms of latency for nothing. Only the
++## physics waits for the tick.
++func _queue_flap() -> void:
++	_flap_queued = true
++	Sfx.play("flap")
++	Sfx.buzz(12)
++
++
+ func _flap() -> void:
+ 	vy = -m["flap"]
+ 	since_flap = 0.0
+-	# Feedback fires HERE, on the input event. That is the 30 ms budget.
+-	Sfx.play("flap")
+-	Sfx.buzz(12)
++	_flap_ticks.append(_tick)
++
++
++## Delta-encoded varints, base64. A ninety-second run is about 150 flaps, which
++## is roughly 300 bytes on the wire.
++func replay_blob() -> String:
++	var bytes := PackedByteArray()
++	var prev := 0
++	for tick in _flap_ticks:
++		var d: int = tick - prev
++		prev = tick
++		while d >= 0x80:
++			bytes.append((d & 0x7F) | 0x80)
++			d >>= 7
++		bytes.append(d)
++	return Marshalls.raw_to_base64(bytes)
+ 
+ 
+ ## The highest-converting placement in the genre. The detail everyone gets
+@@ -302,6 +336,12 @@
+ 		queue_redraw()
+ 		return
+ 
++	# ---- PLAY. The tick counter and the replay log advance together. ----
++	_tick += 1
++	if _flap_queued:
++		_flap_queued = false
++		_flap()
++
+ 	var spd := _cur_spd()
+ 	if invuln > 0.0:
+ 		invuln = maxf(0.0, invuln - dt)
+@@ -434,6 +474,20 @@
+ 		"ramp_step": Config.ramp_for(score)["from"],
+ 		"feathers": run_feathers, "is_pb": pb, "second_wind_used": sw_used,
+ 	})
++	# Fire-and-forget. The local save is already written above and remains the
++	# source of truth; the network is a convenience, never a dependency.
++	Net.submit_run({
++		"mode": mode,
++		"score": score,
++		"seed": Rng.seed_code(),
++		"duration_ms": Time.get_ticks_msec() - run_started_ms,
++		"is_daily": Rng.is_daily,
++		"second_wind_used": sw_used,
++		"assist_active": assist > 0.0,
++		"flap_ticks": replay_blob(),
++		"playfield_h": int(_vh),
++		"build": Config.VERSION,
++	})
+ 
+ 
+ func _step_parts(dt: float, spd: float) -> void:
