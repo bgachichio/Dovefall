@@ -1,6 +1,15 @@
 --- a/scripts/Game.gd
 +++ b/scripts/Game.gd
-@@ -28,6 +28,15 @@
+@@ -6,6 +6,8 @@
+ ## can die to comes from the seeded generator, so every run is reproducible.
+ 
+ signal exit_requested
++signal shop_requested
++signal tutorial_finished(final_score: int)
+ 
+ const GROUND := 0.88
+ 
+@@ -28,6 +30,28 @@
  var flash := 0.0
  var since_flap := 99.0
  var dead_at := 0
@@ -13,20 +22,45 @@
 +var _tick := 0
 +var _flap_queued := false
 +var _flap_ticks: PackedInt32Array = PackedInt32Array()
++
++# ---- respawns ----
++## True once this run has been continued past a death — by the free tutorial
++## respawn or a paid one. A continued run earns feathers and a local best but
++## is never ranked, so it is not submitted with a claim to the board.
++var respawn_used := false
++
++# ---- tutorial ----
++## The first-ever run teaches by playing: the tap glyph teaches flight, and on
++## the first death an arrow points at the heart band, which holds one free
++## respawn. The second death ends the lesson. Tutorial runs are local-only.
++var tutorial := false
++var tut_respawns := 0
  var death_cause := "gate"
  var run_started_ms := 0
  
-@@ -88,6 +97,9 @@
+@@ -60,7 +84,9 @@
+ 	set_process_unhandled_input(true)
+ 
+ 
+-func start(mode_id: String, daily: bool = false) -> void:
++func start(mode_id: String, daily: bool = false, tut: bool = false) -> void:
++	tutorial = tut
++	tut_respawns = 1 if tut else 0
+ 	mode = mode_id
+ 	m = Config.MODES[mode]
+ 	var vp := get_viewport_rect().size
+@@ -88,6 +114,10 @@
  	st = St.READY
  	score = 0
  	run_feathers = 0
 +	_tick = 0
 +	_flap_queued = false
 +	_flap_ticks = PackedInt32Array()
++	respawn_used = false
  	y = _vh * 0.42
  	vy = 0.0
  	rot = 0.0
-@@ -219,9 +231,9 @@
+@@ -219,15 +249,20 @@
  		St.READY:
  			st = St.PLAY
  			run_started_ms = Time.get_ticks_msec()
@@ -38,7 +72,18 @@
  		St.DEAD:
  			if Time.get_ticks_msec() - dead_at < Config.RESTART_MS:
  				return
-@@ -241,12 +253,34 @@
+ 			var py := _touch_y(e)
+ 			if sw_offer and py > _vh * 0.66 and py < _vh * 0.80:
+ 				_second_wind()
++			elif _heart_shown() and py > _vh * 0.795 and py < _vh * 0.89:
++				_heart_tapped()
++			elif tutorial:
++				# Retrying is also a lesson. Either way the tutorial ends here.
++				tutorial_finished.emit(score)
+ 			else:
+ 				Analytics.log_event("retry", {"delay_ms": Time.get_ticks_msec() - dead_at})
+ 				_reset(true)
+@@ -241,12 +276,34 @@
  	return 0.0
  
  
@@ -76,7 +121,63 @@
  
  
  ## The highest-converting placement in the genre. The detail everyone gets
-@@ -302,6 +336,12 @@
+@@ -255,6 +312,13 @@
+ func _second_wind() -> void:
+ 	sw_used = true
+ 	sw_offer = false
++	_continue_run()
++	Analytics.log_event("second_wind", {"offered": true, "taken": true, "score_at_death": score})
++
++
++## The mechanics both continuations share: clear the sky ahead so the player
++## does not pay (in money or in advert time) and die instantly to the same gate.
++func _continue_run() -> void:
+ 	var clear_to := _vw * 0.26 + _dove_w() * Config.SW_CLEAR_AHEAD
+ 	for g in gates:
+ 		if g["x"] < clear_to and not g["passed"]:
+@@ -272,7 +336,40 @@
+ 	AppState.countdown = Config.SW_COUNTDOWN_S
+ 	get_tree().paused = true
+ 	Sfx.play("pb")
+-	Analytics.log_event("second_wind", {"offered": true, "taken": true, "score_at_death": score})
++
++
++# ------------------------------------------------------------- heart band
++## Whether the ♥ band is drawn and tappable on the death panel.
++func _heart_shown() -> bool:
++	if tutorial:
++		return tut_respawns > 0
++	return Net.enabled()
++
++
++func _heart_count() -> int:
++	return tut_respawns if tutorial else Net.respawns
++
++
++func _heart_tapped() -> void:
++	if tutorial:
++		tut_respawns -= 1
++		respawn_used = true
++		_continue_run()
++		return
++	if Net.respawns > 0:
++		# Server-first: the guarded decrement there is what stops two devices
++		# spending the same respawn. The run continues only once it agrees.
++		Net.spend_respawn(_on_respawn_spent)
++	else:
++		shop_requested.emit()
++
++
++func _on_respawn_spent(ok: bool) -> void:
++	if not ok or st != St.DEAD:
++		return
++	respawn_used = true
++	_continue_run()
++	Analytics.log_event("iap", {"step": "respawn_used", "sku": "respawn3"})
+ 
+ 
+ # ============================================================ physics
+@@ -302,6 +399,12 @@
  		queue_redraw()
  		return
  
@@ -89,24 +190,72 @@
  	var spd := _cur_spd()
  	if invuln > 0.0:
  		invuln = maxf(0.0, invuln - dt)
-@@ -434,6 +474,20 @@
+@@ -418,6 +521,8 @@
+ 	Sfx.buzz(20)
+ 	sw_offer = (not sw_used) and score >= Config.SW_MIN_SCORE \
+ 		and session_deaths >= Config.SW_MIN_SESSION_DEATHS
++	if tutorial:
++		sw_offer = false
+ 
+ 	var chapter := Config.chapter_index(score)
+ 	var pb := SaveData.record_run(mode, score, run_feathers, chapter)
+@@ -434,6 +539,27 @@
  		"ramp_step": Config.ramp_for(score)["from"],
  		"feathers": run_feathers, "is_pb": pb, "second_wind_used": sw_used,
  	})
 +	# Fire-and-forget. The local save is already written above and remains the
 +	# source of truth; the network is a convenience, never a dependency.
-+	Net.submit_run({
-+		"mode": mode,
-+		"score": score,
-+		"seed": Rng.seed_code(),
-+		"duration_ms": Time.get_ticks_msec() - run_started_ms,
-+		"is_daily": Rng.is_daily,
-+		"second_wind_used": sw_used,
-+		"assist_active": assist > 0.0,
-+		"flap_ticks": replay_blob(),
-+		"playfield_h": int(_vh),
-+		"build": Config.VERSION,
-+	})
++	# Tutorial runs never leave the device; the lesson is not a score.
++	if not tutorial:
++		Net.submit_run({
++			"mode": mode,
++			"score": score,
++			"seed": Rng.seed_code(),
++			"duration_ms": Time.get_ticks_msec() - run_started_ms,
++			"is_daily": Rng.is_daily,
++			"second_wind_used": sw_used,
++			"assist_active": assist > 0.0,
++			"respawn_used": respawn_used,
++			"flap_ticks": replay_blob(),
++			"playfield_h": int(_vh),
++			"build": Config.VERSION,
++		})
++	elif tut_respawns <= 0:
++		# The free respawn is spent and the player has died again: the lesson
++		# is over. Main shows the closing screen; retry taps are ignored above.
++		tutorial_finished.emit(score)
  
  
  func _step_parts(dt: float, spd: float) -> void:
+@@ -693,6 +819,31 @@
+ 				Vector2(bx + _vw * 0.062, by + _vw * 0.030),
+ 				Vector2(bx + _vw * 0.030, by + _vw * 0.044)]), Color(0, 0, 0, 0.75))
+ 			_num("+1", _vw * 0.60, _vh * 0.735, _vw * 0.045, Config.GOLD)
++		if _heart_shown():
++			var hy := _vh * 0.795
++			var hh := _vh * 0.095
++			var have := _heart_count() > 0
++			draw_rect(Rect2(_vw * 0.16, hy, _vw * 0.68, hh),
++				Color(0.94, 0.75, 0.48, 0.14 if have else 0.06))
++			draw_rect(Rect2(_vw * 0.16, hy, _vw * 0.68, hh),
++				Color(0.94, 0.75, 0.48, 0.75 if have else 0.35), false, 2.0)
++			if have:
++				_num("\u2665 \u00D7%d" % _heart_count(), _vw * 0.5, hy + hh * 0.62,
++					_vw * 0.042, Config.GOLD)
++			else:
++				# Empty heart: tapping opens the shop. Symbols only — money
++				# words live in the shop screen, outside the loop.
++				_num("\u2661 +", _vw * 0.5, hy + hh * 0.62, _vw * 0.042,
++					Color(1, 1, 1, 0.75))
++			if tutorial and tut_respawns > 0:
++				# The one explicit teaching gesture: a pulsing arrow. The rest
++				# of the tutorial is just playing.
++				var ax := _vw * 0.5
++				var ay := hy - _vh * 0.022 + sin(t * 6.0) * (_vh * 0.008)
++				draw_colored_polygon(PackedVector2Array([
++					Vector2(ax - _vw * 0.03, ay - _vw * 0.045),
++					Vector2(ax + _vw * 0.03, ay - _vw * 0.045),
++					Vector2(ax, ay)]), Config.GOLD)
+ 
+ 	# Pause and resume-countdown are drawn by the UI layer, which keeps
+ 	# processing while the tree is paused. This node does not redraw once

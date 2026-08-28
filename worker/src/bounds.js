@@ -68,7 +68,7 @@ export function maxScoreForDuration(mode, durationMs) {
  * the server can assert, and the replay log is stored so that historical runs
  * become checkable the day the validator lands.
  */
-export function checkRun({ mode, score, durationMs, secondWindUsed, assistActive }) {
+export function checkRun({ mode, score, durationMs, secondWindUsed, assistActive, respawnUsed }) {
   if (!MODES[mode]) return 'bad_mode';
   if (!Number.isInteger(score) || score < 0 || score > MAX_PLAUSIBLE_SCORE) return 'bad_score';
   if (!Number.isInteger(durationMs) || durationMs < 0) return 'bad_duration';
@@ -80,6 +80,10 @@ export function checkRun({ mode, score, durationMs, secondWindUsed, assistActive
   // Dynamic assistance widens the gap, so an assisted run is a different course.
   if (assistActive) return 'assisted';
 
+  // A paid respawn continues the run past a death, same as Second Wind: the
+  // player bought a longer session and more feathers, never a rank.
+  if (respawnUsed) return 'continued';
+
   if (score > 0 && durationMs < minDurationMs(mode, score)) return 'too_fast';
 
   return null;
@@ -90,6 +94,7 @@ export const REASONS = {
   bad_score: 'Score out of range.',
   bad_duration: 'Duration out of range.',
   second_wind: 'Runs that used Second Wind are not ranked.',
+  continued: 'Runs continued with a respawn are not ranked.',
   assisted: 'Runs with assistance active are not ranked.',
   too_fast: 'Score is higher than the run duration allows.',
 };

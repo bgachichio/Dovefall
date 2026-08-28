@@ -12,6 +12,10 @@ extends Node
 
 const API_BASE := ""  # e.g. "https://dovefall-api.gachichio.workers.dev"
 
+## Where a share card points. Confirm the final domain before launch; until
+## then the Pages URL is the honest one.
+const SHARE_URL := "https://dovefall.com"
+
 const TOKEN_PATH := "user://session.token"
 const QUEUE_PATH := "user://pending_runs.json"
 const TIMEOUT_S := 10.0
@@ -22,10 +26,18 @@ signal sign_in_failed(reason: String)
 signal board_loaded(kind: String, entries: Array)
 signal run_submitted(accepted: bool, personal_best: bool)
 signal save_pulled(rev: int, blob: String)
+signal respawns_changed(balance: int)
+signal names_suggested(names: Array)
 
 var token := ""
 var player := {}
 var online := false
+
+# ---- paid respawns ----
+## The balance is server-authoritative; this is the last value it told us.
+var respawns := 0
+var pay_code := ""
+var pay_link := ""
 
 var _pending: Array = []
 var _flushing := false
@@ -91,8 +103,11 @@ func _on_signed_in(code: int, body: Dictionary) -> void:
 	if body.has("player"):
 		player = body["player"]
 	online = true
+	respawns = int(player.get("respawns", 0))
 	signed_in.emit(player)
+	respawns_changed.emit(respawns)
 	_flush_queue()
+	refresh_respawns()
 
 
 # ------------------------------------------------------------------ runs
@@ -187,6 +202,67 @@ func _on_code_claimed(code: int, body: Dictionary, done: Callable) -> void:
 		_flush_queue()
 		return
 	done.call(false, str(body.get("message", "That code was not accepted.")))
+
+
+# ------------------------------------------------------------------ respawns
+#
+# Purchases happen on the hosted Paystack page, outside the game. The server
+# credits the balance when Paystack's webhook lands; the game only reads and
+# spends. Nothing the client asserts about payment is believed anywhere.
+
+func refresh_respawns() -> void:
+	if not enabled() or token == "":
+		return
+	_get("/v1/respawns", _on_respawns)
+
+
+func _on_respawns(code: int, body: Dictionary) -> void:
+	if code != 200:
+		return
+	respawns = int(body.get("balance", 0))
+	pay_code = str(body.get("pay_code", ""))
+	pay_link = str(body.get("pay_link", ""))
+	respawns_changed.emit(respawns)
+
+
+## Spend one, server-first. `done` gets true only when the server agreed —
+## the guarded decrement there is what stops two devices spending the same one.
+func spend_respawn(done: Callable) -> void:
+	if not enabled() or token == "" or respawns <= 0:
+		done.call(false)
+		return
+	_post("/v1/respawns/spend", {}, _on_respawn_spent.bind(done), true)
+
+
+func _on_respawn_spent(code: int, body: Dictionary, done: Callable) -> void:
+	if code == 200 and bool(body.get("ok", false)):
+		respawns = int(body.get("balance", 0))
+		respawns_changed.emit(respawns)
+		done.call(true)
+	else:
+		if code == 409:
+			respawns = 0
+			respawns_changed.emit(0)
+		done.call(false)
+
+
+func open_pay_page() -> void:
+	if pay_link != "":
+		OS.shell_open(pay_link)
+
+
+# ------------------------------------------------------------------ names
+
+func suggest_names() -> void:
+	if not enabled() or token == "":
+		names_suggested.emit([])
+		return
+	_get("/v1/names/suggest", _on_names_suggested)
+
+
+func _on_names_suggested(code: int, body: Dictionary) -> void:
+	var names: Array = body.get("suggestions", []) if code == 200 else []
+	names_suggested.emit(names)
 
 
 # ------------------------------------------------------------------ boards

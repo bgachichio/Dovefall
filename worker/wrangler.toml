@@ -17,6 +17,14 @@ enabled = true
 # Origin header and is unaffected. Never "*" — this API carries a bearer token.
 ALLOWED_ORIGINS = "https://dovefall.pages.dev"
 
+# The hosted Paystack payment page. Public by nature — the secret key is a
+# wrangler secret, never a var.
+PAYSTACK_LINK = "https://paystack.shop/pay/dovefall"
+
+# KES 50.00, in Paystack subunits (cents). A payment below this is recorded
+# but grants nothing.
+RESPAWN_MIN_SUBUNITS = "5000"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "dovefall"

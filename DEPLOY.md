@@ -17,7 +17,7 @@ The D1 database exists on your account and carries the schema:
 | ID | `b0aa203a-2e22-466c-b0b2-a9013956608f` |
 | Primary region | WEUR (Amsterdam) |
 | Tables | `players`, `bests`, `daily`, `saves`, `rejects` |
-| Migrations applied | `0001_init.sql`, `0002_identity.sql` |
+| Migrations applied | `0001_init.sql`, `0002_identity.sql`, `0003_respawns.sql` |
 
 `worker/wrangler.toml` already points at it. Nothing below re-creates it.
 
@@ -32,7 +32,7 @@ npm install
 npm test
 ```
 
-**You should see** `# pass 68`, `# fail 0`.
+**You should see** `# pass 86`, `# fail 0`.
 
 One test matters more than the rest:
 
@@ -73,13 +73,18 @@ npx wrangler secret put SESSION_SECRET      # paste the above
 # for Android (Play Games / Google Sign-In). Leave unset until you wire sign-in;
 # guest play works without it.
 npx wrangler secret put GOOGLE_CLIENT_IDS
+
+# Your Paystack SECRET key (sk_test_… first, sk_live_… when you go live).
+# It signs every webhook; without it the payments endpoint refuses to trust
+# anything. Rotating it at Paystack means re-running this command.
+npx wrangler secret put PAYSTACK_SECRET_KEY
 ```
 
 ```bash
 npx wrangler secret list
 ```
 
-**You should see** both names, and no values.
+**You should see** all three names, and no values.
 
 > On Android, `requestIdToken(serverClientId)` issues a token whose `aud` is the
 > **web** client ID, not the Android one. If sign-in returns `bad_audience`,
@@ -166,22 +171,34 @@ What the patches do:
 
 | Patch | Change |
 |---|---|
-| `scripts-Game.patch` | Flap applies on the physics tick, not the input event. Records the tick index of every flap and submits the run on death. Audio feedback still fires on the input event — the 30 ms budget is preserved. |
+| `scripts-Game.patch` | Flap on the physics tick + replay log (as before), and now: the ♥ band on the death panel (filled = respawns held, empty = opens the shop), the interactive tutorial (one free respawn, a pulsing arrow, ends on the second death), and `respawn_used` on every submission. Tutorial runs never leave the device. |
 | `autoload-SaveData.patch` | `OS.get_unique_id()` returns an empty string on Web, which gave every browser player the shared key `"dovefall-"`. Replaced with a per-install id. **On Android the native id is reused verbatim, so existing saves still decrypt.** |
 | `export_presets.patch` | Excludes `store/*` — 144 KB of Play listing artwork that no player sees. |
 | `project.patch` | Registers the `Net` autoload, last, after `SaveData`. |
 | `ui-UiKit.patch` | Adds `field()` and `field_display()` — the only places a player types. |
-| `autoload-Config.patch` | Eleven new strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
+| `autoload-Config.patch` | Twenty-three new strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
 | `ui-TitleScreen.patch` | A Credits button beside Leaderboard. |
 | `ui-SettingsScreen.patch` | An account entry point in the existing Account section. |
-| `scripts-Main.patch` | Routing for the two new screens. |
+| `scripts-Main.patch` | Routing: leaderboard, respawn shop (returns to the dead run on close), and the first-play tutorial gate — name pick → tutorial run → closing screen → the run they asked for. |
 
 Two new screens are whole files, not patches — copy them in:
 
 ```bash
-cp ../skills/dovefall/godot/ui/CreditsScreen.gd  ui/
-cp ../skills/dovefall/godot/ui/IdentityScreen.gd ui/
+cp ../skills/dovefall/godot/ui/CreditsScreen.gd       ui/
+cp ../skills/dovefall/godot/ui/IdentityScreen.gd      ui/
+cp ../skills/dovefall/godot/ui/LeaderboardScreen.gd   ui/
+cp ../skills/dovefall/godot/ui/RespawnScreen.gd       ui/
+cp ../skills/dovefall/godot/ui/ShareCard.gd           ui/
+cp ../skills/dovefall/godot/ui/TutorialNameScreen.gd  ui/
+cp ../skills/dovefall/godot/ui/TutorialEndScreen.gd   ui/
 ```
+
+Also confirm two constants in the copied files before export:
+
+- `Net.API_BASE` — your Worker URL (below).
+- `Net.SHARE_URL` — currently `https://dovefall.com`, the link every share
+  card carries. Change it when the domain is confirmed; until then consider
+  pointing it at `https://dovefall.pages.dev` so shares work on day one.
 
 Then set the API base in `autoload/Net.gd`:
 
@@ -247,6 +264,57 @@ appear in `curl -s $API/v1/board/normal` after a run.
 
 If scores do not appear, open the browser console. A CORS error names the origin
 it wanted; put that exact string in `ALLOWED_ORIGINS` and redeploy.
+
+---
+
+## 7b · Wire Paystack
+
+Three one-time steps in the [Paystack dashboard](https://dashboard.paystack.com):
+
+1. **The payment page** — `paystack.shop/pay/dovefall`. Add a custom field
+   named **Player code** (variable name `player_code`). The game shows each
+   player an 8-character code and copies it to their clipboard before opening
+   the page; this field is where they paste it. The webhook parser also
+   accepts the code from any custom field, so an imperfect field name still
+   credits.
+2. **The webhook** — Settings → API Keys & Webhooks → Webhook URL:
+   `https://dovefall-api.<subdomain>.workers.dev/v1/paystack/webhook`.
+   Set it for test mode first, live mode when you switch keys.
+3. **Amount** — the page can leave the amount open. The server credits
+   **3 respawns for any KES payment of 50.00 or more** (`RESPAWN_MIN_SUBUNITS`
+   in `wrangler.toml`, in cents). Below the floor, or in another currency, the
+   payment is recorded in the `payments` table but grants nothing — that table
+   is your audit trail for "I paid and got nothing", including the code the
+   payer typed.
+
+Smoke-test the webhook against production with a signed fake:
+
+```bash
+SECRET=sk_test_your_key            # the same one you gave wrangler
+CODE=$(curl -s $API/v1/respawns -H "authorization: Bearer $TOKEN" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["pay_code"])')
+
+BODY='{"event":"charge.success","data":{"reference":"smoke_pay_1","amount":5000,"currency":"KES","metadata":{"custom_fields":[{"display_name":"Player code","variable_name":"player_code","value":"'$CODE'"}]}}}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha512 -hmac "$SECRET" | awk '{print $NF}')
+
+curl -s -X POST $API/v1/paystack/webhook \
+  -H "content-type: application/json" -H "x-paystack-signature: $SIG" -d "$BODY"
+```
+
+**You should see** `{"received":true,"status":"credited","duplicate":false}` —
+and `/v1/me` now shows `"respawns": 3`. Replay the same curl: `duplicate: true`
+and the balance stays 3. Then clean up:
+
+```bash
+npx wrangler d1 execute dovefall --remote --command "DELETE FROM payments WHERE reference = 'smoke_pay_1'"
+```
+
+**On sharing, honestly:** the web build opens the real share sheet
+(`navigator.share`, image included where the browser allows it — Chrome on
+Android does). **The Android native build has no share sheet yet** — Godot has
+no built-in one; until a share plugin is added, the card is saved and the link
+is copied to the clipboard, and `ShareCard.gd` marks the slot where the plugin
+call goes.
 
 ---
 

@@ -1,6 +1,6 @@
 --- a/autoload/Config.gd
 +++ b/autoload/Config.gd
-@@ -135,6 +135,11 @@
+@@ -135,6 +135,16 @@
  		"owned": "Worn", "wear": "Wear", "locked": "Locked",
  		"streak": "Streak", "best": "Best", "feathers": "Feathers",
  		"tagline": "One touch. Storm, deep and sky.",
@@ -9,10 +9,15 @@
 +		"playername": "Player name", "savename": "Save name",
 +		"recovery": "Recovery", "getcode": "Get a recovery code",
 +		"entercode": "Recovery code", "restoreacct": "Restore my account",
++		"respawns": "Respawns", "getrespawns": "Get respawns",
++		"copycode": "Copy code", "paynow": "Pay with Paystack", "ihavepaid": "I have paid",
++		"share": "Share", "sharebest": "Share my score",
++		"suggest": "Suggest names", "keepname": "Keep my name",
++		"choosename": "Choose your name", "wellflown": "Well flown",
  	},
  	"sw": {
  		"play": "Cheza", "daily": "Changamoto ya Leo", "wardrobe": "Nguo",
-@@ -152,6 +157,13 @@
+@@ -152,6 +162,18 @@
  		"owned": "Imevaliwa", "wear": "Vaa", "locked": "Imefungwa",
  		"streak": "Mfululizo", "best": "Bora", "feathers": "Manyoya",
  		"tagline": "Mguso mmoja. Dhoruba, kina na anga.",
@@ -23,6 +28,11 @@
 +		"playername": "Jina la mchezaji", "savename": "Hifadhi jina",
 +		"recovery": "Kurejesha", "getcode": "Pata msimbo wa kurejesha",
 +		"entercode": "Msimbo wa kurejesha", "restoreacct": "Rejesha akaunti yangu",
++		"respawns": "Nafasi zaidi", "getrespawns": "Pata nafasi zaidi",
++		"copycode": "Nakili msimbo", "paynow": "Lipa kwa Paystack", "ihavepaid": "Nimelipa",
++		"share": "Shiriki", "sharebest": "Shiriki alama yangu",
++		"suggest": "Pendekeza majina", "keepname": "Baki na jina langu",
++		"choosename": "Chagua jina lako", "wellflown": "Safari njema",
  	},
  }
  

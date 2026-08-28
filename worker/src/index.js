@@ -18,6 +18,10 @@
 //   POST   /v1/runs          { mode, score, ... }      (auth)
 //   GET    /v1/board/:mode   ?limit=
 //   GET    /v1/board/daily   ?day=YYYY-MM-DD
+//   GET    /v1/respawns                                (auth)
+//   POST   /v1/respawns/spend                          (auth)
+//   GET    /v1/names/suggest                           (auth)
+//   POST   /v1/paystack/webhook  (signed by Paystack, not by a session)
 
 import { json, fail, readJson, corsHeaders, HttpError } from './http.js';
 import {
@@ -25,6 +29,11 @@ import {
   tagFor, mintRecoveryCode, normaliseRecoveryCode, hashRecoveryCode,
 } from './auth.js';
 import { checkRun, REASONS } from './bounds.js';
+import {
+  verifyPaystackSignature, judgeCharge, mintPayCode,
+  DEFAULT_MIN_SUBUNITS, RESPAWNS_PER_PAYMENT,
+} from './paystack.js';
+import { suggestNames } from './names.js';
 import { isMode, MODE_ORDER } from './config.js';
 import { todayKey, dailySeed, parseSeedCode, seedCode } from './rng.js';
 import * as store from './store.js';
@@ -130,6 +139,102 @@ async function route(request, env, ctx) {
     }
     const linked = await store.linkGoogle(db, player.id, sub, cleanName(name, player.name));
     return json({ player: publicPlayer(linked), merged: true }, ctx);
+  }
+
+  // ---------------------------------------------------------------- respawns
+  //
+  // Purchases happen on the hosted Paystack page; the webhook below is the
+  // only thing that grants a balance. These two routes just read and spend it.
+
+  if (path === '/v1/respawns' && method === 'GET') {
+    const player = await requirePlayer(request, env, db, ctx);
+    let code = player.pay_code;
+    if (!code) {
+      // Collisions across 32^8 are vanishingly rare but the index is UNIQUE,
+      // so retry rather than 500 on the day one happens.
+      for (let i = 0; i < 3 && !code; i++) {
+        const candidate = mintPayCode();
+        try {
+          await store.setPayCode(db, player.id, candidate);
+          code = candidate;
+        } catch {
+          /* unique-index race; mint again */
+        }
+      }
+      if (!code) return fail(500, 'internal', 'Could not assign a payment code.', ctx);
+    }
+    return json(
+      {
+        balance: Number(player.respawns) || 0,
+        pay_code: code,
+        pay_link: env.PAYSTACK_LINK || null,
+        per_payment: RESPAWNS_PER_PAYMENT,
+        min_kes: Math.ceil((Number(env.RESPAWN_MIN_SUBUNITS) || DEFAULT_MIN_SUBUNITS) / 100),
+      },
+      ctx,
+    );
+  }
+
+  if (path === '/v1/respawns/spend' && method === 'POST') {
+    const player = await requirePlayer(request, env, db, ctx);
+    const ok = await store.spendRespawn(db, player.id);
+    const balance = ok ? (Number(player.respawns) || 0) - 1 : Number(player.respawns) || 0;
+    if (!ok) return fail(409, 'no_respawns', 'No respawns left.', ctx);
+    return json({ ok: true, balance }, ctx);
+  }
+
+  // ---------------------------------------------------------------- names
+
+  if (path === '/v1/names/suggest' && method === 'GET') {
+    await requirePlayer(request, env, db, ctx);
+    return json({ suggestions: await suggestNames(db) }, ctx);
+  }
+
+  // ---------------------------------------------------------------- paystack
+  //
+  // Server-to-server; no CORS, no session. Authentication is the HMAC-SHA512
+  // signature over the raw body under the account secret. Respond 200 for
+  // anything validly signed — a non-200 makes Paystack retry forever.
+
+  if (path === '/v1/paystack/webhook' && method === 'POST') {
+    if (!env.PAYSTACK_SECRET_KEY) {
+      return fail(503, 'not_configured', 'Payments are not configured.', ctx);
+    }
+    const raw = await request.text();
+    const signed = await verifyPaystackSignature(
+      raw,
+      request.headers.get('x-paystack-signature') || '',
+      env.PAYSTACK_SECRET_KEY,
+    );
+    if (!signed) return fail(401, 'bad_signature', 'Signature did not verify.', ctx);
+
+    let event;
+    try {
+      event = JSON.parse(raw);
+    } catch {
+      return fail(400, 'bad_json', 'Body was not valid JSON.', ctx);
+    }
+    if (event?.event !== 'charge.success') return json({ ignored: true }, ctx);
+
+    const verdict = judgeCharge(event.data, Number(env.RESPAWN_MIN_SUBUNITS) || DEFAULT_MIN_SUBUNITS);
+    if (!verdict.reference) return fail(400, 'no_reference', 'Charge carried no reference.', ctx);
+
+    const player = verdict.code ? await store.findByPayCode(db, verdict.code) : null;
+    const status = verdict.status === 'credited' && !player ? 'no_player' : verdict.status;
+
+    const firstTime = await store.recordPayment(db, {
+      reference: verdict.reference,
+      playerId: player?.id ?? null,
+      amount: verdict.amount,
+      currency: verdict.currency,
+      status,
+      rawCode: verdict.raw,
+      now,
+    });
+    if (firstTime && status === 'credited') {
+      await store.creditRespawns(db, player.id, RESPAWNS_PER_PAYMENT);
+    }
+    return json({ received: true, status, duplicate: !firstTime }, ctx);
   }
 
   // ---------------------------------------------------------------- me
@@ -253,6 +358,7 @@ async function route(request, env, ctx) {
       durationMs,
       secondWindUsed: body.second_wind_used === true,
       assistActive: body.assist_active === true,
+      respawnUsed: body.respawn_used === true,
     });
 
     // A daily run must have used the day's seed. Free to check, and it catches
@@ -337,6 +443,7 @@ function publicPlayer(p) {
     tag: tagFor(p.id),
     guest: !p.google_sub,
     has_recovery_code: !!p.recovery_hash,
+    respawns: Number(p.respawns) || 0,
     created_at: p.created_at,
   };
 }

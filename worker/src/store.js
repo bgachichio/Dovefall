@@ -241,3 +241,45 @@ export async function claimRecovery(db, player, deviceId, now) {
   await db.batch(statements);
   return getPlayer(db, player.id);
 }
+
+
+// ---------------------------------------------------------------- respawns
+
+export async function setPayCode(db, playerId, code) {
+  await db.prepare('UPDATE players SET pay_code = ?2 WHERE id = ?1').bind(playerId, code).run();
+}
+
+export async function findByPayCode(db, code) {
+  return db.prepare('SELECT * FROM players WHERE pay_code = ?1').bind(code).first();
+}
+
+export async function creditRespawns(db, playerId, n) {
+  await db
+    .prepare('UPDATE players SET respawns = respawns + ?2 WHERE id = ?1')
+    .bind(playerId, n)
+    .run();
+}
+
+/** Single guarded decrement: two devices racing cannot spend the same one. */
+export async function spendRespawn(db, playerId) {
+  const res = await db
+    .prepare('UPDATE players SET respawns = respawns - 1 WHERE id = ?1 AND respawns > 0')
+    .bind(playerId)
+    .run();
+  return (res.meta?.changes || 0) > 0;
+}
+
+/**
+ * Record a payment reference exactly once. Returns false when the reference
+ * was already seen — the idempotency guard against webhook retries.
+ */
+export async function recordPayment(db, { reference, playerId, amount, currency, status, rawCode, now }) {
+  const res = await db
+    .prepare(
+      `INSERT OR IGNORE INTO payments (reference, player_id, amount, currency, status, raw_code, at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    )
+    .bind(reference, playerId, amount, currency, status, rawCode, now)
+    .run();
+  return (res.meta?.changes || 0) > 0;
+}

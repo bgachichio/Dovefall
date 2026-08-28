@@ -1,23 +1,106 @@
 --- a/scripts/Main.gd
 +++ b/scripts/Main.gd
-@@ -12,6 +12,8 @@
+@@ -12,6 +12,16 @@
  const Settings := preload("res://ui/SettingsScreen.gd")
  const Wardrobe := preload("res://ui/WardrobeScreen.gd")
  const Pause := preload("res://ui/PauseOverlay.gd")
 +const Credits := preload("res://ui/CreditsScreen.gd")
 +const Identity := preload("res://ui/IdentityScreen.gd")
++const Leaderboard := preload("res://ui/LeaderboardScreen.gd")
++const RespawnShop := preload("res://ui/RespawnScreen.gd")
++const TutorialName := preload("res://ui/TutorialNameScreen.gd")
++const TutorialEnd := preload("res://ui/TutorialEndScreen.gd")
++
++# The run the tutorial interrupted, replayed once the name is chosen.
++var _pending_mode := "normal"
++var _pending_daily := false
  
  
  func _ready() -> void:
-@@ -112,6 +114,7 @@
+@@ -20,6 +30,8 @@
+ 	game = Node2D.new()
+ 	game.set_script(GameScene)
+ 	add_child(game)
++	game.shop_requested.connect(_open_respawn_shop)
++	game.tutorial_finished.connect(_on_tutorial_finished)
+ 
+ 	ui = CanvasLayer.new()
+ 	ui.layer = 10
+@@ -110,15 +122,70 @@
+ 	t.play_pressed.connect(_start_run)
+ 	t.wardrobe_pressed.connect(_open_wardrobe)
  	t.settings_pressed.connect(_open_settings)
- 	t.leaderboard_pressed.connect(func():
- 		push_warning("Leaderboard opens Play Games Services — phase 4."))
+-	t.leaderboard_pressed.connect(func():
+-		push_warning("Leaderboard opens Play Games Services — phase 4."))
++	t.leaderboard_pressed.connect(_open_leaderboard)
 +	t.credits_pressed.connect(_open_credits)
  
  
  func _start_run(mode: String, daily: bool) -> void:
-@@ -133,6 +136,22 @@
++	# The very first Play of this install detours through the tutorial: choose
++	# a name, then learn the rest by playing a real (local-only) run.
++	if int(SaveData.data.get("tut_done", 0)) == 0:
++		_pending_mode = mode
++		_pending_daily = daily
++		var n := Control.new()
++		n.set_script(TutorialName)
++		_swap(n)
++		n.done.connect(_on_tutorial_name_done)
++		return
++	_begin_run(mode, daily, false)
++
++
++func _begin_run(mode: String, daily: bool, tut: bool) -> void:
+ 	_swap(null)
+ 	game.visible = true
+ 	hud_bar.visible = true
+-	game.start(mode, daily)
++	game.start(mode, daily, tut)
++
++
++func _on_tutorial_name_done() -> void:
++	_begin_run(_pending_mode, false, true)
++
++
++func _on_tutorial_finished(final_score: int) -> void:
++	SaveData.data["tut_done"] = 1
++	SaveData.write()
++	var e := Control.new()
++	e.set_script(TutorialEnd)
++	# set() rather than a property access: `e` is typed Control here, and the
++	# analyzer cannot see members of the attached script.
++	e.set("score", final_score)
++	_swap(e)
++	e.finished.connect(_after_tutorial)
++
++
++func _after_tutorial() -> void:
++	# Straight into the run they originally asked for, now for real.
++	_begin_run(_pending_mode, _pending_daily, false)
++
++
++func _open_leaderboard() -> void:
++	var l := Control.new()
++	l.set_script(Leaderboard)
++	_swap(l)
++	l.closed.connect(show_title)
++
++
++## Reached from the death screen's empty heart. Closing returns to the dead
++## run, which is still there under the overlay, waiting for a retry tap.
++func _open_respawn_shop() -> void:
++	var r := Control.new()
++	r.set_script(RespawnShop)
++	_swap(r)
++	r.closed.connect(_close_over_game)
++
++
++func _close_over_game() -> void:
++	_swap(null)
+ 
+ 
+ func _open_wardrobe() -> void:
+@@ -133,6 +200,22 @@
  	s.set_script(Settings)
  	_swap(s)
  	s.closed.connect(show_title)

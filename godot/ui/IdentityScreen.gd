@@ -19,6 +19,7 @@ var _name_field: LineEdit
 var _code_field: LineEdit
 var _status: Label
 var _code_display: Label
+var _suggestions: VBoxContainer
 
 
 func _ready() -> void:
@@ -26,6 +27,7 @@ func _ready() -> void:
 	add_child(UiKit.backdrop())
 	Net.signed_in.connect(_on_signed_in)
 	Net.sign_in_failed.connect(_on_failed)
+	Net.names_suggested.connect(_on_names)
 	_build()
 
 
@@ -34,6 +36,8 @@ func _exit_tree() -> void:
 		Net.signed_in.disconnect(_on_signed_in)
 	if Net.sign_in_failed.is_connected(_on_failed):
 		Net.sign_in_failed.disconnect(_on_failed)
+	if Net.names_suggested.is_connected(_on_names):
+		Net.names_suggested.disconnect(_on_names)
 
 
 func _build() -> void:
@@ -63,6 +67,14 @@ func _build() -> void:
 	var save_name := UiKit.button(Config.t("savename"), true)
 	save_name.pressed.connect(_on_save_name)
 	col.add_child(save_name)
+
+	var sug := UiKit.button(Config.t("suggest"))
+	sug.pressed.connect(_on_suggest)
+	col.add_child(sug)
+
+	_suggestions = VBoxContainer.new()
+	_suggestions.add_theme_constant_override("separation", 8)
+	col.add_child(_suggestions)
 
 	# ------------------------------------------------------------- recovery
 	col.add_child(UiKit.section(Config.t("recovery")))
@@ -113,6 +125,32 @@ func _on_save_name() -> void:
 		return
 	Net.set_player_name(wanted)
 	_say("Saving…")
+
+
+func _on_suggest() -> void:
+	_say("Thinking\u2026")
+	Net.suggest_names()
+
+
+## Three names, each confirmed unused at the moment of asking. Tapping one
+## saves it immediately — the suggestion IS the confirmation.
+func _on_names(names: Array) -> void:
+	_say("")
+	for c in _suggestions.get_children():
+		c.queue_free()
+	if names.is_empty():
+		_say("Could not fetch suggestions. Type a name instead.")
+		return
+	for n in names:
+		var b := UiKit.button(str(n))
+		b.pressed.connect(_on_pick_name.bind(str(n)))
+		_suggestions.add_child(b)
+
+
+func _on_pick_name(name: String) -> void:
+	_name_field.text = name
+	Net.set_player_name(name)
+	_say("Saving\u2026")
 
 
 func _on_issue_code() -> void:
