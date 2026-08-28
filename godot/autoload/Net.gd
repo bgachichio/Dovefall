@@ -12,9 +12,13 @@ extends Node
 
 const API_BASE := ""  # e.g. "https://dovefall-api.gachichio.workers.dev"
 
-## Where a share card points. Confirm the final domain before launch; until
-## then the Pages URL is the honest one.
-const SHARE_URL := "https://dovefall.com"
+## Where every share card points.
+##
+## Set this to the workers.dev URL for the first night — a share that 404s is
+## worse than one with an ugly hostname — and move it to
+## https://gachichio.org/dovefallgame once the zone is on Cloudflare and the
+## route is live. See DEPLOY.md 7a.
+const SHARE_URL := "https://gachichio.org/dovefallgame"
 
 const TOKEN_PATH := "user://session.token"
 const QUEUE_PATH := "user://pending_runs.json"
@@ -28,10 +32,20 @@ signal run_submitted(accepted: bool, personal_best: bool)
 signal save_pulled(rev: int, blob: String)
 signal respawns_changed(balance: int)
 signal names_suggested(names: Array)
+signal streaks_changed(streaks: Dictionary)
 
 var token := ""
 var player := {}
 var online := false
+
+## Server-authoritative streaks. The client never computes them: a local streak
+## is lost with the phone, invisible to the board, and one save edit from
+## meaningless. Shape: {play: {current, best, alive, outcome, milestone},
+## daily: {...}}.
+var streaks := {
+	"play": {"current": 0, "best": 0, "alive": false},
+	"daily": {"current": 0, "best": 0, "alive": false},
+}
 
 # ---- paid respawns ----
 ## The balance is server-authoritative; this is the last value it told us.
@@ -92,6 +106,43 @@ func sign_out() -> void:
 	DirAccess.remove_absolute(TOKEN_PATH)
 
 
+## Both /v1/me and /v1/runs return the same shape, so one reader serves both.
+func _absorb_streaks(body: Dictionary) -> void:
+	if not body.has("streaks"):
+		return
+	var incoming = body["streaks"]
+	if typeof(incoming) != TYPE_DICTIONARY:
+		return
+	streaks = incoming
+	streaks_changed.emit(streaks)
+
+
+## Convenience for the UI: the number to show, or 0 when the streak has lapsed.
+## A lapsed streak shows nothing rather than a stale number about to vanish.
+func play_streak() -> int:
+	var p: Dictionary = streaks.get("play", {})
+	return int(p.get("current", 0)) if bool(p.get("alive", false)) else 0
+
+
+func daily_streak() -> int:
+	var d: Dictionary = streaks.get("daily", {})
+	return int(d.get("current", 0)) if bool(d.get("alive", false)) else 0
+
+
+func refresh_me() -> void:
+	if not enabled() or token == "":
+		return
+	_get("/v1/me", _on_me)
+
+
+func _on_me(code: int, body: Dictionary) -> void:
+	if code != 200:
+		return
+	if body.has("player"):
+		player = body["player"]
+	_absorb_streaks(body)
+
+
 func _on_signed_in(code: int, body: Dictionary) -> void:
 	if code < 200 or code >= 300:
 		online = false
@@ -108,6 +159,7 @@ func _on_signed_in(code: int, body: Dictionary) -> void:
 	respawns_changed.emit(respawns)
 	_flush_queue()
 	refresh_respawns()
+	refresh_me()
 
 
 # ------------------------------------------------------------------ runs
@@ -143,6 +195,7 @@ func _on_run_submitted(code: int, body: Dictionary) -> void:
 		if not _pending.is_empty():
 			_pending.pop_front()
 		_write_queue()
+		_absorb_streaks(body)
 		run_submitted.emit(bool(body.get("accepted", false)), bool(body.get("personal_best", false)))
 		if not _pending.is_empty():
 			_flush_queue()
@@ -277,6 +330,14 @@ func load_daily_board() -> void:
 	if not enabled():
 		return
 	_get("/v1/board/daily", _on_board.bind("daily"))
+
+
+## A board for persistence rather than reflex: longest daily streak. Reachable
+## by players who will never top a score board but never miss a day either.
+func load_streak_board() -> void:
+	if not enabled():
+		return
+	_get("/v1/board/streaks", _on_board.bind("streaks"))
 
 
 ## Boards are advisory. A failed fetch emits an empty list so the screen can say

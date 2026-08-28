@@ -7,7 +7,8 @@ on Cloudflare's free plan. The 1 GB VM is not involved.
 |---|---|
 | `f2p-infrastructure.md` | The costing and architecture analysis this came from |
 | `DEPLOY.md` | Deploy from a clean checkout, with checkpoints |
-| `worker/` | The API: Cloudflare Worker + D1. `npm test` runs 96 tests |
+| `site/` | The game bundle, served as Workers static assets — unmetered |
+| `worker/` | The API: Cloudflare Worker + D1. `npm test` runs 116 tests |
 | `godot/patches/` | Changes to the game, as applyable diffs |
 | `godot/autoload/Net.gd` | The API client. Local-first; the network is never awaited |
 | `godot/tools/` | Golden-vector emitter, for a future replay validator |

@@ -7,7 +7,7 @@ extends Control
 
 signal closed
 
-const KINDS := ["easy", "normal", "hard", "pro", "daily"]
+const KINDS := ["easy", "normal", "hard", "pro", "daily", "streaks"]
 
 var _kind := "normal"
 var _list: VBoxContainer
@@ -38,7 +38,7 @@ func _build() -> void:
 			+ "bests from this device."))
 
 	var labels := [Config.t("easy"), Config.t("normal"), Config.t("hard"),
-		Config.t("pro"), Config.t("daily")]
+		Config.t("pro"), Config.t("daily"), Config.t("streak")]
 	col.add_child(UiKit.choice(Config.t("difficulty"), labels,
 		maxi(0, KINDS.find(_kind)), _on_kind))
 
@@ -82,23 +82,28 @@ func _reload() -> void:
 	_status.text = "…"
 	if _kind == "daily":
 		Net.load_daily_board()
+	elif _kind == "streaks":
+		Net.load_streak_board()
 	else:
 		Net.load_board(_kind)
 
 
 func _refresh_mine() -> void:
 	var best := _my_best()
+	var glyph := "\u25C6" if _kind == "streaks" else "\u2605"
 	var name := str(Net.player.get("name", "")) if Net.enabled() else ""
 	var tag := str(Net.player.get("tag", ""))
 	if name != "" and tag != "":
-		_mine.text = "%s#%s  ·  ★ %d" % [name, tag, best]
+		_mine.text = "%s#%s  \u00B7  %s %d" % [name, tag, glyph, best]
 	else:
-		_mine.text = "★ %d" % best
+		_mine.text = "%s %d" % [glyph, best]
 
 
 func _my_best() -> int:
 	if _kind == "daily":
 		return int(SaveData.data.get("daily", {}).get("score", 0))
+	if _kind == "streaks":
+		return int(Net.streaks.get("daily", {}).get("best", 0))
 	return SaveData.best_for(_kind)
 
 
@@ -157,6 +162,9 @@ func _on_share() -> void:
 	var score := _my_best()
 	if score <= 0:
 		_status.text = "Fly a run first — then there is a score to share."
+		return
+	if _kind == "streaks":
+		_status.text = "Share your score from a difficulty board."
 		return
 	_status.text = "Making your card…"
 	ShareCard.capture_and_share(self, score, _kind, _on_shared)

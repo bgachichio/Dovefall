@@ -1,14 +1,48 @@
 --- a/ui/TitleScreen.gd
 +++ b/ui/TitleScreen.gd
-@@ -5,6 +5,7 @@
+@@ -5,6 +5,9 @@
  signal wardrobe_pressed
  signal settings_pressed
  signal leaderboard_pressed
 +signal credits_pressed
++
++var _streak_line: Label
  
  
  func _ready() -> void:
-@@ -94,8 +95,16 @@
+@@ -43,11 +46,7 @@
+ 	# --- stats strip ---
+ 	var mode: String = SaveData.get_setting("mode", "normal")
+ 	var strip := Label.new()
+-	strip.text = "\u2605 %d      \u2691 %d      \u25C6 %d" % [
+-		SaveData.best_for(mode),
+-		int(SaveData.data["feathers"]),
+-		int(SaveData.data["streak"]["count"]),
+-	]
++	strip.text = _strip_text(mode)
+ 	strip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+ 	strip.add_theme_font_size_override("font_size", 34)
+ 	strip.add_theme_color_override("font_color", Color(1, 1, 1, 0.78))
+@@ -62,10 +61,14 @@
+ 	var cur := Config.MODE_ORDER.find(mode)
+ 	col.add_child(UiKit.choice(Config.t("difficulty"), labels, maxi(cur, 0), func(i):
+ 		SaveData.set_setting("mode", Config.MODE_ORDER[i])
+-		strip.text = "\u2605 %d      \u2691 %d      \u25C6 %d" % [
+-			SaveData.best_for(Config.MODE_ORDER[i]),
+-			int(SaveData.data["feathers"]),
+-			int(SaveData.data["streak"]["count"])]))
++		strip.text = _strip_text(Config.MODE_ORDER[i])))
++
++	# A live streak earns a line of its own; a lapsed one says nothing, because
++	# a number about to vanish is worse than no number.
++	_streak_line = UiKit.note("")
++	_streak_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
++	col.add_child(_streak_line)
++	_refresh_streak()
+ 
+ 	col.add_child(UiKit.spacer(20))
+ 
+@@ -94,8 +97,46 @@
  	row.add_child(s)
  	col.add_child(row)
  
@@ -26,3 +60,33 @@
 +	col.add_child(row2)
  
  	add_child(UiKit.page(col))
++
++
++## The server owns the streak; SaveData's local count is the offline fallback.
++func _streak_days() -> int:
++	if Net.enabled() and Net.play_streak() > 0:
++		return Net.play_streak()
++	return int(SaveData.data.get("streak", {}).get("count", 0))
++
++
++func _strip_text(mode: String) -> String:
++	return "\u2605 %d      \u2691 %d      \u25C6 %d" % [
++		SaveData.best_for(mode),
++		int(SaveData.data["feathers"]),
++		_streak_days(),
++	]
++
++
++func _refresh_streak() -> void:
++	if _streak_line == null:
++		return
++	var days := _streak_days()
++	if days <= 0:
++		_streak_line.text = ""
++		return
++	var daily := Net.daily_streak() if Net.enabled() else 0
++	if daily > 1:
++		_streak_line.text = "%s: %d %s  \u00B7  %s %d" % [
++			Config.t("streak"), days, Config.t("days"), Config.t("daily"), daily]
++	else:
++		_streak_line.text = "%s: %d %s" % [Config.t("streak"), days, Config.t("days")]

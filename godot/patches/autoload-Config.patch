@@ -1,6 +1,6 @@
 --- a/autoload/Config.gd
 +++ b/autoload/Config.gd
-@@ -135,6 +135,16 @@
+@@ -135,6 +135,17 @@
  		"owned": "Worn", "wear": "Wear", "locked": "Locked",
  		"streak": "Streak", "best": "Best", "feathers": "Feathers",
  		"tagline": "One touch. Storm, deep and sky.",
@@ -14,10 +14,11 @@
 +		"share": "Share", "sharebest": "Share my score",
 +		"suggest": "Suggest names", "keepname": "Keep my name",
 +		"choosename": "Choose your name", "wellflown": "Well flown",
++		"days": "days", "streaksaved": "Streak saved", "streakboard": "Longest streaks",
  	},
  	"sw": {
  		"play": "Cheza", "daily": "Changamoto ya Leo", "wardrobe": "Nguo",
-@@ -152,6 +162,18 @@
+@@ -152,6 +163,19 @@
  		"owned": "Imevaliwa", "wear": "Vaa", "locked": "Imefungwa",
  		"streak": "Mfululizo", "best": "Bora", "feathers": "Manyoya",
  		"tagline": "Mguso mmoja. Dhoruba, kina na anga.",
@@ -33,6 +34,7 @@
 +		"share": "Shiriki", "sharebest": "Shiriki alama yangu",
 +		"suggest": "Pendekeza majina", "keepname": "Baki na jina langu",
 +		"choosename": "Chagua jina lako", "wellflown": "Safari njema",
++		"days": "siku", "streaksaved": "Mfululizo umeokolewa", "streakboard": "Mifululizo mirefu",
  	},
  }
  

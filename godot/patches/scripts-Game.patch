@@ -135,7 +135,7 @@
  	var clear_to := _vw * 0.26 + _dove_w() * Config.SW_CLEAR_AHEAD
  	for g in gates:
  		if g["x"] < clear_to and not g["passed"]:
-@@ -272,7 +336,40 @@
+@@ -272,7 +336,59 @@
  	AppState.countdown = Config.SW_COUNTDOWN_S
  	get_tree().paused = true
  	Sfx.play("pb")
@@ -144,6 +144,25 @@
 +
 +# ------------------------------------------------------------- heart band
 +## Whether the ♥ band is drawn and tappable on the death panel.
++## Did this run advance the streak? The server answers; "same_day" and a
++## rejected run both mean no, which is correct — a second run today has not
++## earned anything and neither has a cheat.
++func _streak_moved() -> bool:
++	if not Net.enabled():
++		return false
++	var play: Dictionary = Net.streaks.get("play", {})
++	var outcome := str(play.get("outcome", ""))
++	return outcome == "extended" or outcome == "saved" or outcome == "started"
++
++
++func _streak_milestone() -> int:
++	if not Net.enabled():
++		return 0
++	var play: Dictionary = Net.streaks.get("play", {})
++	var m = play.get("milestone", null)
++	return int(m) if m != null else 0
++
++
 +func _heart_shown() -> bool:
 +	if tutorial:
 +		return tut_respawns > 0
@@ -177,7 +196,7 @@
  
  
  # ============================================================ physics
-@@ -302,6 +399,12 @@
+@@ -302,6 +418,12 @@
  		queue_redraw()
  		return
  
@@ -190,7 +209,7 @@
  	var spd := _cur_spd()
  	if invuln > 0.0:
  		invuln = maxf(0.0, invuln - dt)
-@@ -418,6 +521,8 @@
+@@ -418,6 +540,8 @@
  	Sfx.buzz(20)
  	sw_offer = (not sw_used) and score >= Config.SW_MIN_SCORE \
  		and session_deaths >= Config.SW_MIN_SESSION_DEATHS
@@ -199,7 +218,7 @@
  
  	var chapter := Config.chapter_index(score)
  	var pb := SaveData.record_run(mode, score, run_feathers, chapter)
-@@ -434,6 +539,27 @@
+@@ -434,6 +558,27 @@
  		"ramp_step": Config.ramp_for(score)["from"],
  		"feathers": run_feathers, "is_pb": pb, "second_wind_used": sw_used,
  	})
@@ -227,7 +246,7 @@
  
  
  func _step_parts(dt: float, spd: float) -> void:
-@@ -468,6 +594,16 @@
+@@ -468,6 +613,16 @@
  	_build_pal()
  
  
@@ -244,7 +263,7 @@
  func _build_pal() -> void:
  	var a: Dictionary = Config.CHAPTERS[pal_from]
  	var b: Dictionary = Config.CHAPTERS[pal_to]
-@@ -517,6 +653,7 @@
+@@ -517,6 +672,7 @@
  
  	_draw_dove()
  	_draw_hud()
@@ -252,7 +271,27 @@
  
  
  func _draw_sky_bodies() -> void:
-@@ -693,6 +830,31 @@
+@@ -677,8 +833,17 @@
+ 			Config.GOLD if pb else Color(1, 1, 1, 0.96))
+ 		if pb:
+ 			draw_arc(Vector2(_vw * 0.5, _vh * 0.425), _vw * 0.115, 0, TAU, 40, Color(0.94, 0.75, 0.48, 0.55), 2.0)
+-		_num("\u2605 %d    \u2691 %d" % [SaveData.best_for(mode), run_feathers],
+-			_vw * 0.5, _vh * 0.500, _vw * 0.031, Color(1, 1, 1, 0.72))
++		# Symbols only: the loop stays wordless, so the streak is a glyph and a
++		# number, and it turns gold on the run that moved it. A milestone gets
++		# the ring as well — sparse enough that it still reads as an event.
++		var days := Net.play_streak() if Net.enabled() else int(SaveData.data.get("streak", {}).get("count", 0))
++		var moved := _streak_moved()
++		_num("\u2605 %d    \u2691 %d    \u25C6 %d" % [SaveData.best_for(mode), run_feathers, days],
++			_vw * 0.5, _vh * 0.500, _vw * 0.031,
++			Config.GOLD if moved else Color(1, 1, 1, 0.72))
++		if moved and _streak_milestone() > 0:
++			draw_arc(Vector2(_vw * 0.5, _vh * 0.492), _vw * 0.30, 0, TAU, 48,
++				Color(0.94, 0.75, 0.48, 0.45 + 0.25 * sin(t * 5.0)), 2.0)
+ 		if not pb and SaveData.best_for(mode) - score == 1:
+ 			_num("\u2605\u22121", _vw * 0.5, _vh * 0.545, _vw * 0.034, Config.GOLD)
+ 		_replay_glyph(_vw * 0.5, _vh * 0.600, _vw * 0.038)
+@@ -693,6 +858,31 @@
  				Vector2(bx + _vw * 0.062, by + _vw * 0.030),
  				Vector2(bx + _vw * 0.030, by + _vw * 0.044)]), Color(0, 0, 0, 0.75))
  			_num("+1", _vw * 0.60, _vh * 0.735, _vw * 0.045, Config.GOLD)

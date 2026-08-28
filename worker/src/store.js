@@ -379,3 +379,51 @@ export async function bumpEpoch(db, playerId) {
 export async function touchDevice(db, deviceId, now) {
   await db.prepare('UPDATE devices SET last_seen = ?2 WHERE device_id = ?1').bind(deviceId, now).run();
 }
+
+
+// ---------------------------------------------------------------- streaks
+
+/**
+ * Persist an advanced streak. Guarded on the day so a second run today writes
+ * nothing — the streak costs one row-write per active player per day.
+ */
+export async function saveStreak(db, playerId, kind, next) {
+  const c = kind === 'daily'
+    ? ['daily_streak', 'daily_best', 'daily_last_day', 'daily_grace_week']
+    : ['play_streak', 'play_best', 'play_last_day', 'play_grace_week'];
+  const res = await db
+    .prepare(
+      `UPDATE players SET ${c[0]} = ?2, ${c[1]} = ?3, ${c[2]} = ?4, ${c[3]} = ?5
+        WHERE id = ?1 AND (${c[2]} IS NULL OR ${c[2]} != ?4)`,
+    )
+    .bind(playerId, next.current, next.best, next.lastDay, next.graceWeek)
+    .run();
+  return (res.meta?.changes || 0) > 0;
+}
+
+export function readStreak(player, kind) {
+  const p = kind === 'daily'
+    ? ['daily_streak', 'daily_best', 'daily_last_day', 'daily_grace_week']
+    : ['play_streak', 'play_best', 'play_last_day', 'play_grace_week'];
+  return {
+    current: Number(player?.[p[0]]) || 0,
+    best: Number(player?.[p[1]]) || 0,
+    lastDay: player?.[p[2]] || null,
+    graceWeek: player?.[p[3]] || null,
+  };
+}
+
+/** Who has kept the daily ritual longest. A board for persistence, not reflex. */
+export async function boardStreaks(db, limit = 50) {
+  const { results } = await db
+    .prepare(
+      `SELECT p.id AS player_id, p.name, p.daily_best AS score, p.daily_streak AS current
+         FROM players p
+        WHERE p.banned = 0 AND p.daily_best > 0
+        ORDER BY p.daily_best DESC, p.created_at ASC
+        LIMIT ?1`,
+    )
+    .bind(Math.min(limit, 100))
+    .all();
+  return results || [];
+}

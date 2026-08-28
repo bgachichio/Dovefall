@@ -17,7 +17,7 @@ The D1 database exists on your account and carries the schema:
 | ID | `b0aa203a-2e22-466c-b0b2-a9013956608f` |
 | Primary region | WEUR (Amsterdam) |
 | Tables | `players`, `devices`, `bests`, `daily`, `saves`, `rejects`, `payments` |
-| Migrations applied | `0001_init.sql`, `0002_identity.sql`, `0003_respawns.sql`, `0004_devices.sql` |
+| Migrations applied | `0001` init · `0002` identity · `0003` respawns · `0004` devices · `0005` streaks |
 
 `worker/wrangler.toml` already points at it. Nothing below re-creates it.
 
@@ -32,7 +32,7 @@ npm install
 npm test
 ```
 
-**You should see** `# pass 96`, `# fail 0`.
+**You should see** `# pass 116`, `# fail 0`.
 
 One test matters more than the rest:
 
@@ -196,9 +196,10 @@ cp ../skills/dovefall/godot/ui/TutorialEndScreen.gd   ui/
 Also confirm two constants in the copied files before export:
 
 - `Net.API_BASE` — your Worker URL (below).
-- `Net.SHARE_URL` — currently `https://dovefall.com`, the link every share
-  card carries. Change it when the domain is confirmed; until then consider
-  pointing it at `https://dovefall.pages.dev` so shares work on day one.
+- `Net.SHARE_URL` — the link every share card carries. It is set to
+  `https://gachichio.org/dovefallgame`, which only works once §7a is done.
+  **For tonight, set it to your `workers.dev` URL instead** — a share card
+  pointing at a 404 is worse than one with an ugly hostname.
 
 Then set the API base in `autoload/Net.gd`:
 
@@ -243,27 +244,78 @@ is the one input to the whole cost model that I estimated rather than measured.
 
 ---
 
-## 7 · Publish the bundle to Pages
+## 7 · Publish the bundle
+
+The bundle is served by a **second Worker** (`site/`) whose only job is static
+assets. Static assets are unmetered on the free plan, which is the whole reason
+the ~5 MB engine download does not come from the VM.
 
 ```bash
-npx wrangler pages project create dovefall --production-branch main
-npx wrangler pages deploy web/ --project-name dovefall
+cd ../site
+mkdir -p public/dovefallgame
+cp -r ../../<godot-project>/web/* public/dovefallgame/
+npx wrangler deploy
 ```
 
-**You should see** a `https://dovefall.pages.dev` URL.
+**You should see** a `https://dovefall-site.<subdomain>.workers.dev` URL. The
+game is at **`/dovefallgame/`** on it — the trailing slash matters, and
+`html_handling` adds it for you.
 
-Now close the CORS loop — the Worker refuses browser origins it does not know:
+Now close the CORS loop, because the Worker refuses browser origins it does not
+know:
 
 ```bash
-# edit worker/wrangler.toml -> ALLOWED_ORIGINS
+# edit worker/wrangler.toml -> ALLOWED_ORIGINS, add the site URL
 cd ../worker && npx wrangler deploy
 ```
 
-**You should see** the game load at `dovefall.pages.dev`, play, and a score
-appear in `curl -s $API/v1/board/normal` after a run.
+**You should see** the game load, play, and a score appear in
+`curl -s $API/v1/board/normal` after a run. A CORS error in the browser console
+names the origin it wanted; put that exact string in `ALLOWED_ORIGINS`.
 
-If scores do not appear, open the browser console. A CORS error names the origin
-it wanted; put that exact string in `ALLOWED_ORIGINS` and redeploy.
+**This is a live, shareable game.** Everything below is about the address bar.
+
+---
+
+## 7a · Moving it to gachichio.org/dovefallgame
+
+The game runs fine on `workers.dev`. Putting it on your own domain is a
+separate, riskier job, and it is worth understanding what it touches before you
+start — `gachichio.org` currently serves Kenya Pulse from Caddy on the VM.
+
+**The trap to avoid.** Do NOT have Caddy `reverse_proxy` the game. Every byte
+would then flow out of africa-south1 at $0.12/GB, which is roughly $72/month at
+100,000 web players — the exact bill this whole architecture exists to avoid. A
+302 redirect to the workers.dev URL is free and safe, but changes the address
+bar, which defeats the point.
+
+**The way that works.** Put the zone on Cloudflare and let a Worker route claim
+one path:
+
+1. Add `gachichio.org` to Cloudflare (free plan). It imports your existing DNS.
+2. **Check the imported records against your current zone before switching.**
+   Anything missed becomes an outage of that service, not of the game.
+3. Change the nameservers at your registrar. Propagation is usually under an
+   hour and can be far longer; do not start this at 11pm.
+4. Set the root A record (`34.35.177.164`) to **Proxied** — the orange cloud.
+   This is load-bearing: a Worker route cannot fire on a hostname whose traffic
+   never reaches Cloudflare, and a grey-cloud record fails *silently*.
+5. SSL/TLS mode **Full**, not Flexible. Flexible sends plaintext to your origin.
+   Caddy's Let's Encrypt renewal uses an HTTP-01 challenge that the proxy can
+   interfere with; if renewal starts failing, install a **Cloudflare Origin
+   Certificate** on the VM and move to Full (strict).
+6. Uncomment the `routes` block in `site/wrangler.toml` and `npx wrangler
+   deploy`.
+
+**You should see** `https://gachichio.org/dovefallgame/` serve the game, and
+every other path on gachichio.org still served by Caddy exactly as before.
+
+Then set `Net.SHARE_URL` to `https://gachichio.org/dovefallgame`, re-export,
+and redeploy the site Worker. Until you do, every share card carries the old
+link — which is why it is worth deciding the address before you invite anyone.
+
+**Rollback:** comment the route out and redeploy, or set the A record back to
+grey cloud. Both take under a minute and neither touches the VM.
 
 ---
 

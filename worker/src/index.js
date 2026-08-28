@@ -20,6 +20,7 @@
 //   POST   /v1/runs          { mode, score, ... }      (auth)
 //   GET    /v1/board/:mode   ?limit=
 //   GET    /v1/board/daily   ?day=YYYY-MM-DD
+//   GET    /v1/board/streaks ?limit=
 //   GET    /v1/respawns                                (auth)
 //   POST   /v1/respawns/spend                          (auth)
 //   GET    /v1/names/suggest                           (auth)
@@ -36,6 +37,7 @@ import {
   DEFAULT_MIN_SUBUNITS, RESPAWNS_PER_PAYMENT,
 } from './paystack.js';
 import { suggestNames } from './names.js';
+import { advanceStreak, isAlive, milestoneFor } from './streaks.js';
 import { isMode, MODE_ORDER } from './config.js';
 import { todayKey, dailySeed, parseSeedCode, seedCode } from './rng.js';
 import * as store from './store.js';
@@ -265,7 +267,20 @@ async function route(request, env, ctx) {
   if (path === '/v1/me' && method === 'GET') {
     const player = await requirePlayer(request, env, db, ctx);
     const bests = await store.getBests(db, player.id);
-    return json({ player: publicPlayer(player), bests }, ctx);
+    const today = todayKey();
+    return json(
+      {
+        player: publicPlayer(player),
+        bests,
+        streaks: streakPayload(
+          store.readStreak(player, 'play'),
+          store.readStreak(player, 'daily'),
+          today,
+          false,
+        ),
+      },
+      ctx,
+    );
   }
 
   if (path === '/v1/me/name' && method === 'PUT') {
@@ -470,7 +485,27 @@ async function route(request, env, ctx) {
       });
     }
 
-    return json({ accepted: true, personal_best: isPb, daily_best: dailyPb }, ctx);
+    // Streaks advance on a completed run, at most once per day per kind. The
+    // death screen uses `outcome` to decide whether this is a moment worth
+    // celebrating or a number to show quietly.
+    const play = advanceStreak(store.readStreak(player, 'play'), day);
+    if (play.changed) await store.saveStreak(db, player.id, 'play', play);
+
+    let daily = store.readStreak(player, 'daily');
+    if (isDaily) {
+      daily = advanceStreak(daily, day);
+      if (daily.changed) await store.saveStreak(db, player.id, 'daily', daily);
+    }
+
+    return json(
+      {
+        accepted: true,
+        personal_best: isPb,
+        daily_best: dailyPb,
+        streaks: streakPayload(play, daily, day, isDaily),
+      },
+      ctx,
+    );
   }
 
   // ---------------------------------------------------------------- boards
@@ -480,6 +515,23 @@ async function route(request, env, ctx) {
       : todayKey();
     const rows = await store.boardDaily(db, day, limitParam(url));
     return json({ day, seed: seedCode(dailySeed(day)), entries: rows.map(entry) }, ctx);
+  }
+
+  if (path === '/v1/board/streaks' && method === 'GET') {
+    const rows = await store.boardStreaks(db, limitParam(url));
+    return json(
+      {
+        board: 'streaks',
+        entries: rows.map((r, i) => ({
+          rank: i + 1,
+          name: r.name,
+          tag: tagFor(r.player_id),
+          score: r.score,
+          current: r.current,
+        })),
+      },
+      ctx,
+    );
   }
 
   const boardMatch = path.match(/^\/v1\/board\/([a-z]+)$/);
@@ -508,6 +560,32 @@ function entry(row, i) {
 function sessionFor(player, env) {
   return issueSession(player.id, env, Number(player.session_epoch) || 1);
 }
+
+/**
+ * One shape for both /v1/me and /v1/runs so the client never has to reconcile
+ * two. `alive` is computed rather than stored: a streak last touched two days
+ * ago is still alive while this week's grace is unspent, and the title screen
+ * should say so instead of showing a number that is about to vanish.
+ */
+function streakPayload(play, daily, today, advancedDaily) {
+  return {
+    play: {
+      current: play.current,
+      best: play.best,
+      alive: isAlive(play, today),
+      outcome: play.outcome || null,
+      milestone: play.outcome && play.outcome !== 'same_day' ? milestoneFor(play.current) : null,
+    },
+    daily: {
+      current: daily.current,
+      best: daily.best,
+      alive: isAlive(daily, today),
+      outcome: advancedDaily ? daily.outcome || null : null,
+      milestone: advancedDaily && daily.outcome !== 'same_day' ? milestoneFor(daily.current) : null,
+    },
+  };
+}
+
 
 function publicPlayer(p) {
   return {
