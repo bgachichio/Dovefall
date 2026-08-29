@@ -132,16 +132,6 @@ export async function boardDaily(db, day, limit = BOARD_LIMIT) {
   return results || [];
 }
 
-export async function rankAllTime(db, mode, score) {
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM bests b JOIN players p ON p.id = b.player_id
-        WHERE b.mode = ?1 AND p.banned = 0 AND b.score > ?2`,
-    )
-    .bind(mode, score)
-    .first();
-  return (row?.n || 0) + 1;
-}
 
 export async function getSave(db, playerId) {
   return db.prepare('SELECT rev, blob, updated_at FROM saves WHERE player_id = ?1').bind(playerId).first();

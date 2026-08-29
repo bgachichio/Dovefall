@@ -49,7 +49,7 @@ class Stmt {
 export function makeDb() {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON;');
-  for (const f of ['0001_init.sql', '0002_identity.sql', '0003_respawns.sql', '0004_devices.sql', '0005_streaks.sql']) {
+  for (const f of ['0001_init.sql', '0002_identity.sql', '0003_respawns.sql', '0004_devices.sql', '0005_streaks.sql', '0006_ops.sql']) {
     db.exec(readFileSync(join(here, '..', 'schema', f), 'utf8'));
   }
   return {

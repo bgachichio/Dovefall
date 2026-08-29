@@ -1,0 +1,42 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard"
+  ],
+  "timezone": "Africa/Nairobi",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "wrangler is the only runtime-adjacent dependency; keep it current but batched",
+      "matchPackageNames": [
+        "wrangler"
+      ],
+      "groupName": "wrangler",
+      "automerge": false
+    },
+    {
+      "description": "Security fixes do not wait for Monday",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "vulnerabilityAlerts": {
+        "enabled": true
+      },
+      "schedule": [
+        "at any time"
+      ]
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": [
+      "security"
+    ]
+  }
+}

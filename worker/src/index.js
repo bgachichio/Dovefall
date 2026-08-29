@@ -31,13 +31,15 @@ import {
   issueSession, readSession, bearer, verifyGoogleIdToken, cleanName,
   tagFor, mintRecoveryCode, normaliseRecoveryCode, hashRecoveryCode,
 } from './auth.js';
-import { checkRun, REASONS } from './bounds.js';
+import { checkRun, REASONS, maxScoreForDuration } from './bounds.js';
 import {
   verifyPaystackSignature, judgeCharge, mintPayCode,
   DEFAULT_MIN_SUBUNITS, RESPAWNS_PER_PAYMENT,
 } from './paystack.js';
 import { suggestNames } from './names.js';
 import { advanceStreak, isAlive, milestoneFor } from './streaks.js';
+import { runMaintenance } from './maintenance.js';
+import { report as budgetReport } from './budget.js';
 import { isMode, MODE_ORDER } from './config.js';
 import { todayKey, dailySeed, parseSeedCode, seedCode } from './rng.js';
 import * as store from './store.js';
@@ -67,7 +69,57 @@ export default {
       return fail(500, 'internal', 'Something went wrong on our side.', context);
     }
   },
+
+  /**
+   * The hourly cron. Prunes expired rows and records the day's projection, so
+   * neither job is ever in a player's latency path.
+   */
+  async scheduled(event, env, ctx) {
+    if (!env.DB) return;
+    ctx.waitUntil(
+      runMaintenance(env.DB)
+        .then((r) => console.log('maintenance', JSON.stringify(r)))
+        .catch((e) => console.error('maintenance failed', e && e.stack ? e.stack : e)),
+    );
+  },
 };
+
+/**
+ * Today's budget row, cached so the shed check is free after the first request.
+ *
+ * Keyed on the database binding rather than held in a bare module variable: a
+ * module-level cache is shared by every database an isolate ever sees, which
+ * is wrong in principle and observably wrong under test. The WeakMap also lets
+ * the entry be collected with the binding.
+ *
+ * The 60-second TTL is deliberate. The cron flips `shed` at most once an hour,
+ * so a running isolate can serve a stale `false` for up to a minute — which on
+ * a 100,000-a-day budget is a rounding error, and the alternative is a read on
+ * every request to save writes we were not making anyway.
+ */
+const OPS_TTL_MS = 60_000;
+const opsCache = new WeakMap();
+
+async function opsToday(db, day) {
+  const now = Date.now();
+  const hit = opsCache.get(db);
+  if (hit && hit.day === day && now - hit.at < OPS_TTL_MS) return hit.row;
+  const row = await db.prepare('SELECT * FROM ops WHERE day = ?1').bind(day).first();
+  opsCache.set(db, { day, row, at: now });
+  return row;
+}
+
+/**
+ * True when the day's projected writes are past 80% of the free-tier limit.
+ *
+ * Shedding drops writes a player would not notice — reject logging, cloud
+ * saves, last-seen touches — and never the ones they would: a score, a
+ * personal best, a streak. Degradation, not an outage.
+ */
+async function shedding(db, day) {
+  const row = await opsToday(db, day);
+  return Number(row?.shed) === 1;
+}
 
 async function route(request, env, ctx) {
   const url = new URL(request.url);
@@ -77,7 +129,12 @@ async function route(request, env, ctx) {
   const now = Math.floor(Date.now() / 1000);
 
   if (path === '/v1/health' && method === 'GET') {
-    return json({ ok: true, version: VERSION, day: todayKey(), modes: MODE_ORDER }, ctx);
+    // The budget is one curl away rather than a dashboard hunt.
+    const ops = await opsToday(db, todayKey()).catch(() => null);
+    return json(
+      { ok: true, version: VERSION, day: todayKey(), modes: MODE_ORDER, budget: budgetReport(ops) },
+      ctx,
+    );
   }
 
   // ---------------------------------------------------------------- auth
@@ -409,10 +466,15 @@ async function route(request, env, ctx) {
 
     // Writes are the scarce resource on the free plan, so a client that syncs
     // too eagerly is asked to wait rather than silently burning the budget.
+    // Past 80% of the day's ceiling the window widens tenfold: a save that
+    // lands five minutes later costs the player nothing, and the local save is
+    // the source of truth regardless.
+    const shed = await shedding(db, todayKey());
+    const window = shed ? SAVE_MIN_INTERVAL_S * 10 : SAVE_MIN_INTERVAL_S;
     const current = await store.getSave(db, player.id);
-    if (current && now - current.updated_at < SAVE_MIN_INTERVAL_S && rev > current.rev) {
+    if (current && now - current.updated_at < window && rev > current.rev) {
       return json(
-        { rev: current.rev, throttled: true, retry_after: SAVE_MIN_INTERVAL_S - (now - current.updated_at) },
+        { rev: current.rev, throttled: true, retry_after: window - (now - current.updated_at) },
         { ...ctx, status: 429 },
       );
     }
@@ -463,13 +525,16 @@ async function route(request, env, ctx) {
       // Only worth a write if this was an attempt on the board, rather than a
       // confused client posting an ordinary run.
       const best = await store.getBest(db, player.id, mode);
-      if (Number.isInteger(score) && score > (best?.score ?? 0)) {
+      if (Number.isInteger(score) && score > (best?.score ?? 0) && !(await shedding(db, day))) {
         await store.logReject(db, { playerId: player.id, mode, score, durationMs, reason: finalReason, now });
       }
-      return json(
-        { accepted: false, reason: finalReason, message: REASONS[finalReason] || 'Run was not accepted.' },
-        { ...ctx, status: 422 },
-      );
+      // For too_fast, say what the duration actually supports. A reject a
+      // person can act on beats one they can only be annoyed by.
+      let message = REASONS[finalReason] || 'Run was not accepted.';
+      if (finalReason === 'too_fast') {
+        message += ` At ${Math.round(durationMs / 1000)}s the highest possible score is ${maxScoreForDuration(mode, durationMs)}.`;
+      }
+      return json({ accepted: false, reason: finalReason, message }, { ...ctx, status: 422 });
     }
 
     const seed = submittedSeed ? seedCode(submittedSeed) : null;
@@ -619,7 +684,7 @@ function bearerDevice(request) {
 
 
 async function maybeTouch(db, player, now) {
-  if (now - player.last_seen_at > LAST_SEEN_STALE_S) {
-    await store.touchLastSeen(db, player.id, now);
-  }
+  if (now - player.last_seen_at <= LAST_SEEN_STALE_S) return;
+  if (await shedding(db, todayKey())) return;   // cosmetic; first to go
+  await store.touchLastSeen(db, player.id, now);
 }

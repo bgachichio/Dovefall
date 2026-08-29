@@ -73,8 +73,6 @@ func enabled() -> bool:
 	return API_BASE != ""
 
 
-func is_guest() -> bool:
-	return player.get("guest", true)
 
 
 # ------------------------------------------------------------------ identity
@@ -86,24 +84,6 @@ func sign_in_guest() -> void:
 		return
 	_post("/v1/auth/guest", {"device_id": SaveData.install_id()}, _on_signed_in)
 
-
-## Upgrade a guest to a real account, or sign in an existing one. `id_token` is
-## a Google ID token from Play Games Services (Android) or Google Identity
-## Services (web).
-func sign_in_google(id_token: String) -> void:
-	if not enabled():
-		return
-	if token == "":
-		_post("/v1/auth/google", {"id_token": id_token}, _on_signed_in)
-	else:
-		_post("/v1/auth/link", {"id_token": id_token}, _on_signed_in, true)
-
-
-func sign_out() -> void:
-	token = ""
-	player = {}
-	online = false
-	DirAccess.remove_absolute(TOKEN_PATH)
 
 
 ## Both /v1/me and /v1/runs return the same shape, so one reader serves both.
@@ -160,6 +140,7 @@ func _on_signed_in(code: int, body: Dictionary) -> void:
 	_flush_queue()
 	refresh_respawns()
 	refresh_me()
+	pull_save()
 
 
 # ------------------------------------------------------------------ runs
@@ -352,12 +333,21 @@ func _on_board(code: int, body: Dictionary, kind: String) -> void:
 ## Push at most on app background and on a personal best — the server throttles
 ## to one write every 30 seconds and the free plan's write budget is the scarce
 ## resource, not bandwidth.
-func push_save(rev: int) -> void:
+## Called on pause and on app background — the two moments a session ends.
+## The server throttles to one write every 30 s and the free plan's write
+## budget is the scarce resource, so the client does not sync more eagerly
+## than that.
+func push_save() -> void:
 	if not enabled() or token == "":
 		return
-	_put("/v1/save", {"rev": rev, "blob": JSON.stringify(SaveData.data)}, _on_save_pushed)
+	_put("/v1/save", {
+		"rev": int(SaveData.data.get("rev", 1)),
+		"blob": JSON.stringify(SaveData.data),
+	}, _on_save_pushed)
 
 
+## Called once on sign-in. Merging is conflict-free (see SaveData.merge_remote),
+## so pulling can only ever add progress, never remove it.
 func pull_save() -> void:
 	if not enabled() or token == "":
 		return
@@ -370,8 +360,13 @@ func _on_save_pushed(_code: int, _body: Dictionary) -> void:
 
 
 func _on_save_pulled(code: int, body: Dictionary) -> void:
-	if code == 200 and body.get("blob") != null:
-		save_pulled.emit(int(body.get("rev", 0)), str(body["blob"]))
+	if code != 200 or body.get("blob") == null:
+		return
+	var merged := SaveData.merge_remote(str(body["blob"]))
+	save_pulled.emit(int(body.get("rev", 0)), str(body["blob"]))
+	if merged:
+		# We now hold strictly more than the server does; hand it back.
+		push_save()
 
 
 # ------------------------------------------------------------------ transport

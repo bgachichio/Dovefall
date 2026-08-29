@@ -4,8 +4,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 import { makeEnv, call } from './harness.mjs';
-import { advanceStreak, isAlive, isoWeek, shiftDay, daysBetween, milestoneFor } from '../src/streaks.js';
+import { advanceStreak, isAlive, isoWeek, daysBetween, milestoneFor } from '../src/streaks.js';
 import { todayKey, dailySeed, seedCode } from '../src/rng.js';
+
+/**
+ * The test's own date maths, deliberately independent of the module under
+ * test: a helper that shared an implementation with daysBetween could share
+ * its bugs and agree with them.
+ */
+function shiftDay(dayKey, days) {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86400000).toISOString().slice(0, 10);
+}
+
 
 const DEVICE = '11111111-1111-1111-1111-111111111111';
 

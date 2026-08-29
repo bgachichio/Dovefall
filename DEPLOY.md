@@ -1,38 +1,54 @@
-# Dovefall — deploy
+# Dovefall — deployment
 
-Accounts, cloud save and leaderboards on Cloudflare's free plan. The 1 GB VM is
-not involved and never becomes involved.
+Everything on Cloudflare's free plan. The only thing outside it is the domain,
+`gachichio.org`, which you already own.
 
-About forty minutes. Every step ends with **You should see**.
+Three deployables, three URLs:
+
+| | What | Where |
+|---|---|---|
+| `worker/` | The API — accounts, scores, saves, payments | `dovefall-api.<sub>.workers.dev` |
+| `site/` | The game bundle, as static assets | `gachichio.org/dovefallgame/` |
+| D1 `dovefall` | The database | already created |
+
+**Read §0 before you start.** One step in here changes DNS for a domain that
+currently serves live traffic, and it is the only step that can take your site
+down. It is also the last step, deliberately.
 
 ---
 
-## What is already done
+## 0 · What is already done, and what can go wrong
 
-The D1 database exists on your account and carries the schema:
+The database exists on your account and carries every migration:
 
 | | |
 |---|---|
-| Database | `dovefall` |
-| ID | `b0aa203a-2e22-466c-b0b2-a9013956608f` |
-| Primary region | WEUR (Amsterdam) |
-| Tables | `players`, `devices`, `bests`, `daily`, `saves`, `rejects`, `payments` |
-| Migrations applied | `0001` init · `0002` identity · `0003` respawns · `0004` devices · `0005` streaks |
+| Database | `dovefall` · `b0aa203a-2e22-466c-b0b2-a9013956608f` · WEUR |
+| Tables | `players` `devices` `bests` `daily` `saves` `rejects` `payments` `ops` |
+| Migrations | `0001` init · `0002` identity · `0003` respawns · `0004` devices · `0005` streaks · `0006` ops |
 
-`worker/wrangler.toml` already points at it. Nothing below re-creates it.
+**The one honest caveat.** There is no Godot in the environment this was built
+in. The Worker is exhaustively tested — 130 tests, including 60 end-to-end
+against the real schema — but **no GDScript has ever been compiled**. Roughly
+900 lines are new. Budget half an hour at §5 for compile errors; they will be
+trivial and the editor will name every one.
+
+**The riskiest step is §8**, the DNS move. Everything before it is additive and
+reversible in under a minute. Do §1–§7 whenever you like; do §8 when you have a
+calm hour and are not about to go to bed.
 
 ---
 
-## 0 · Prerequisites
+## 1 · Prerequisites
 
 ```bash
-node --version     # 20 or newer
+node --version          # 22 or newer
 cd dovefall/worker
 npm install
 npm test
 ```
 
-**You should see** `# pass 116`, `# fail 0`.
+**You should see** `# pass 130`, `# fail 0`.
 
 One test matters more than the rest:
 
@@ -40,14 +56,17 @@ One test matters more than the rest:
 ok NN - determinism checksum matches the Godot build
 ```
 
-That asserts the server's port of `Rng.gd` reproduces `4075699207` — the number
-runbook Gate 9 requires your Pixel and your desktop to agree on. **If it ever
-fails, do not deploy.** The server and the game no longer share a physics, and
-every seed-derived claim the API makes is void.
+That asserts the server's port of `Rng.gd` reproduces **4075699207** — the
+number your runbook's Gate 9 requires the Pixel and the desktop to agree on.
+**If it ever fails, stop.** The server and the game no longer share a physics,
+and every seed-derived claim the API makes is void.
+
+Godot **4.7.2** is current (18 August 2026) and the project already targets the
+4.7 line (`config/features` declares `"4.7"`). Use 4.7.2 or later.
 
 ---
 
-## 1 · Authenticate wrangler
+## 2 · Authenticate
 
 ```bash
 npx wrangler login
@@ -58,7 +77,7 @@ npx wrangler whoami
 
 ---
 
-## 2 · Set the secrets
+## 3 · Secrets
 
 Never in `wrangler.toml`, never in git. `wrangler secret put` prompts and stores
 them encrypted at Cloudflare.
@@ -67,58 +86,54 @@ them encrypted at Cloudflare.
 # 32 random bytes. Rotating this signs every player out — which is also your
 # panic button if a session token is ever leaked.
 openssl rand -base64 32
-npx wrangler secret put SESSION_SECRET      # paste the above
+npx wrangler secret put SESSION_SECRET       # paste the above
 
-# Comma-separated OAuth client IDs. One for web (Google Identity Services), one
-# for Android (Play Games / Google Sign-In). Leave unset until you wire sign-in;
-# guest play works without it.
-npx wrangler secret put GOOGLE_CLIENT_IDS
-
-# Your Paystack SECRET key (sk_test_… first, sk_live_… when you go live).
-# It signs every webhook; without it the payments endpoint refuses to trust
-# anything. Rotating it at Paystack means re-running this command.
+# Your Paystack SECRET key (sk_test_… first, sk_live_… when you go live). It
+# signs every webhook; without it the payments endpoint refuses to trust
+# anything at all.
 npx wrangler secret put PAYSTACK_SECRET_KEY
+
+# Optional. Comma-separated Google OAuth client IDs, for when you wire
+# sign-in. Guest play — which is every player on day one — works without it.
+npx wrangler secret put GOOGLE_CLIENT_IDS
 ```
 
 ```bash
 npx wrangler secret list
 ```
 
-**You should see** all three names, and no values.
+**You should see** the names, and no values.
 
-> On Android, `requestIdToken(serverClientId)` issues a token whose `aud` is the
-> **web** client ID, not the Android one. If sign-in returns `bad_audience`,
-> that is nearly always why.
+> On Android, `requestIdToken(serverClientId)` issues a token whose `aud` is
+> the **web** client ID, not the Android one. If sign-in ever returns
+> `bad_audience`, that is nearly always why.
 
 ---
 
-## 3 · Deploy the Worker
+## 4 · Deploy the API
 
 ```bash
 npx wrangler deploy
 ```
 
-**You should see** a `https://dovefall-api.<subdomain>.workers.dev` URL. Keep it.
+**You should see** a `https://dovefall-api.<subdomain>.workers.dev` URL, and a
+line confirming the cron trigger `0 * * * *`. Keep the URL; call it `$API`.
 
----
-
-## 4 · Smoke test, against production
+### Smoke test — the API, before the game exists
 
 ```bash
 API=https://dovefall-api.<subdomain>.workers.dev
-
-curl -s $API/v1/health
+curl -s $API/v1/health | python3 -m json.tool
 ```
 
-**You should see** `{"ok":true,"version":"1.0.0","day":"…","modes":["easy",…]}`
+**You should see** `"ok": true`, today's date, the four modes, and a `budget`
+block reporting `"shedding": false` with `"threshold_pct": 80`.
 
 ```bash
 # A guest signs in
-TOKEN=$(curl -s -X POST $API/v1/auth/guest \
-  -H 'content-type: application/json' \
+TOKEN=$(curl -s -X POST $API/v1/auth/guest -H 'content-type: application/json' \
   -d '{"device_id":"11111111-2222-3333-4444-555555555555","name":"Smoke"}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
-echo ${TOKEN:0:12}…
 
 # A plausible run is accepted
 curl -s -X POST $API/v1/runs -H "authorization: Bearer $TOKEN" \
@@ -126,223 +141,255 @@ curl -s -X POST $API/v1/runs -H "authorization: Bearer $TOKEN" \
   -d '{"mode":"normal","score":30,"duration_ms":60000,"seed":"D0FE","build":"0.1.0","playfield_h":1920}'
 ```
 
-**You should see** `{"accepted":true,"personal_best":true,"daily_best":false}`
+**You should see** `"accepted":true,"personal_best":true` and a `streaks` block
+showing `"outcome":"started"`.
 
 ```bash
-# An impossible one is not
+# An impossible one is not, and it says what IS possible
 curl -s -X POST $API/v1/runs -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"mode":"normal","score":900,"duration_ms":30000,"seed":"D0FE"}'
 ```
 
-**You should see** `{"accepted":false,"reason":"too_fast",…}` with HTTP 422.
+**You should see** HTTP 422, `"reason":"too_fast"`, and a message naming the
+highest score 30 seconds could support.
 
 ```bash
-curl -s $API/v1/board/normal
+curl -s $API/v1/board/normal      # Smoke at rank 1, with a #TAG
+curl -s $API/v1/board/streaks     # the persistence board
 ```
 
-**You should see** `Smoke` at rank 1.
-
-Then clear the test data:
+Then clear the test data — the `players` delete cascades everywhere:
 
 ```bash
-npx wrangler d1 execute dovefall --remote \
-  --command "DELETE FROM players WHERE name = 'Smoke'"
-npx wrangler d1 execute dovefall --remote \
-  --command "DELETE FROM rejects"
+npx wrangler d1 execute dovefall --remote --command \
+  "DELETE FROM players WHERE name = 'Smoke'; DELETE FROM rejects;"
 ```
-
-The `players` delete cascades to `bests`, `daily` and `saves`.
 
 ---
 
 ## 5 · Apply the game patches
 
-From the Godot project root:
+From the **Godot project** root:
 
 ```bash
-git apply --stat  ../skills/dovefall/godot/patches/*.patch   # review first
-git apply         ../skills/dovefall/godot/patches/*.patch
-cp ../skills/dovefall/godot/autoload/Net.gd autoload/Net.gd
-mkdir -p tools && cp ../skills/dovefall/godot/tools/golden_vectors.gd tools/
-```
+git apply --stat ../skills/dovefall/godot/patches/*.patch    # review first
+git apply        ../skills/dovefall/godot/patches/*.patch
 
-What the patches do:
+cp ../skills/dovefall/godot/autoload/Net.gd  autoload/
+cp ../skills/dovefall/godot/ui/*.gd          ui/
+mkdir -p tools && cp ../skills/dovefall/godot/tools/*.gd tools/
+```
 
 | Patch | Change |
 |---|---|
-| `scripts-Game.patch` | Flap on the physics tick + replay log (as before), and now: the ♥ band on the death panel (filled = respawns held, empty = opens the shop), the interactive tutorial (one free respawn, a pulsing arrow, ends on the second death), and `respawn_used` on every submission. Tutorial runs never leave the device. |
-| `autoload-SaveData.patch` | `OS.get_unique_id()` returns an empty string on Web, which gave every browser player the shared key `"dovefall-"`. Replaced with a per-install id. **On Android the native id is reused verbatim, so existing saves still decrypt.** |
-| `export_presets.patch` | Excludes `store/*` — 144 KB of Play listing artwork that no player sees. |
-| `project.patch` | Registers the `Net` autoload, **and changes `stretch/aspect` from `expand` to `keep`** — the fix that makes every screen render the identical game. See `patches/07-playfield-fairness.md`; without it the game is broken in landscape. |
-| `ui-UiKit.patch` | Adds `field()` and `field_display()` — the only places a player types. |
-| `autoload-Config.patch` | Twenty-three new strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
-| `ui-TitleScreen.patch` | A Credits button beside Leaderboard. |
-| `ui-SettingsScreen.patch` | An account entry point in the existing Account section. |
-| `scripts-Main.patch` | Routing: leaderboard, respawn shop (returns to the dead run on close), and the first-play tutorial gate — name pick → tutorial run → closing screen → the run they asked for. |
+| `project.patch` | Registers the `Net` autoload **and sets `stretch/aspect="keep"`** — the fix that makes every screen render the identical game. Without it the game is broken in landscape. See `patches/07-playfield-fairness.md`. |
+| `scripts-Game.patch` | Flap on the physics tick + replay log; the ♥ respawn band; the interactive tutorial; the streak glyph on the death panel; letterbox tinted to the sky. |
+| `autoload-SaveData.patch` | Per-install id (`OS.get_unique_id()` is empty on Web), a `rev` counter, and `merge_remote()` — the conflict-free cloud-save merge. |
+| `autoload-AppState.patch` | Syncs the save on pause, which is how a session ends. |
+| `autoload-Config.patch` | New strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
+| `ui-*.patch` | Text fields, the Credits button, the account entry point. |
+| `scripts-Main.patch` | Routing: leaderboard, respawn shop, first-play tutorial gate. |
 
-Two new screens are whole files, not patches — copy them in:
-
-```bash
-cp ../skills/dovefall/godot/ui/CreditsScreen.gd       ui/
-cp ../skills/dovefall/godot/ui/IdentityScreen.gd      ui/
-cp ../skills/dovefall/godot/ui/LeaderboardScreen.gd   ui/
-cp ../skills/dovefall/godot/ui/RespawnScreen.gd       ui/
-cp ../skills/dovefall/godot/ui/ShareCard.gd           ui/
-cp ../skills/dovefall/godot/ui/TutorialNameScreen.gd  ui/
-cp ../skills/dovefall/godot/ui/TutorialEndScreen.gd   ui/
-```
-
-Also confirm two constants in the copied files before export:
-
-- `Net.API_BASE` — your Worker URL (below).
-- `Net.SHARE_URL` — the link every share card carries. It is set to
-  `https://gachichio.org/dovefallgame`, which only works once §7a is done.
-  **For tonight, set it to your `workers.dev` URL instead** — a share card
-  pointing at a 404 is worse than one with an ugly hostname.
-
-Then set the API base in `autoload/Net.gd`:
+Then set two constants in `autoload/Net.gd`:
 
 ```gdscript
-const API_BASE := "https://dovefall-api.<subdomain>.workers.dev"
+const API_BASE  := "https://dovefall-api.<subdomain>.workers.dev"
+const SHARE_URL := "https://gachichio.org/dovefallgame"
 ```
 
-Leaving it `""` is a valid state: the game plays exactly as before, entirely
-offline. That is the fallback if anything below goes wrong.
+> Leaving `API_BASE` as `""` is a valid state: the game plays exactly as before,
+> entirely offline. That is your fastest rollback and it needs no server.
 
-**Screen independence is now fixed** (`patches/07-playfield-fairness.md`), so
-the board is fair by construction. Verify it on device with the check in that
-file: the first three gate heights for a fixed seed must match on the Pixel, on
-the desktop, and in a resized browser window.
+**You should see** the project open with **no `SCRIPT ERROR`** in the import
+log, and on boot:
 
-**You should see** the project open with no `SCRIPT ERROR` in the import log,
-and `checksum : 4075699207` on boot. These are ~100 lines of GDScript that have
-never been run by the engine; budget twenty minutes for one or two trivial
-compile errors, as the original runbook does.
+```
+[dovefall] checksum     : 4075699207
+```
 
 ---
 
-## 6 · Web export
+## 6 · Validate the gameplay
 
-In Godot: **Project → Export → Add → Web**.
+Do this on the desktop first, then repeat the starred steps on the Pixel. Every
+line is a thing that has broken in this codebase or could.
+
+### 6a · Rendering — the one to do on three screen shapes
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Launch, resize the window to a wide landscape shape | The game stays a **portrait column**, centred, with bars either side |
+| 2 | Watch the bars as you pass score 5, 15, 30 | Bars **change colour with the sky** at each chapter — they are not black |
+| 3 | Resize while a run is in progress | Gates do not jump. The course is unchanged |
+| 4 | ★ On the Pixel, check the top-left counters | Best and feather counters are **clear of the status bar and punch-hole** |
+| 5 | ★ On a tablet or a 4:3 window | Portrait column again, bars left and right |
+
+**The determinism check.** Add a temporary print of the first three gate `top`
+values for seed `0xD0FE` in `normal`, then read it on desktop, on the Pixel, and
+in a resized browser window. **All three must be identical.** Before the
+`aspect="keep"` fix they were not — a 20:9 phone got 76% more placement range
+and a laptop got a negative one. Delete the print afterwards.
+
+### 6b · The first-run tutorial
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Delete the save (`user://` — Project ▸ Open User Data Folder), relaunch, tap **Play** | The **name screen** appears with three suggestions |
+| 2 | Tap a suggested name | It saves and a run begins immediately |
+| 3 | Fly and die once | A **gold arrow pulses** at the ♥ band holding one free respawn |
+| 4 | Tap the ♥ | The sky ahead clears, a countdown runs, the flight continues |
+| 5 | Die again | The **"Well flown"** screen: your score, a Share button, a line about the recovery code |
+| 6 | Tap Play | Straight into a normal run — the tutorial never appears again |
+
+### 6c · Interruption and persistence
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | ★ Background the app mid-run | It pauses. Returning gives a **countdown, not a death** |
+| 2 | Change a setting, force-close from recents, reopen | The setting persisted |
+| 3 | Reach 5, 15, 30 | Palette cross-fades; music lifts to major |
+| 4 | Tap repeatedly | Wings animate; audio fires **on the tap**, not a frame later |
+
+### 6d · Accounts, scores, streaks
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Settings ▸ Account | Your name and `#TAG` |
+| 2 | Set a name, reopen | It stuck |
+| 3 | **Get a recovery code** | 15 characters, `XXXXX-XXXXX-XXXXX`, copied to clipboard |
+| 4 | Score a run, open **Leaderboard** | You are on it, **your row in gold** |
+| 5 | Switch to the **Streak** board | It loads |
+| 6 | Title screen | A streak line: `Streak: 1 days` |
+| 7 | `curl -s $API/v1/board/normal` | Your real score, from the real device |
+
+**Cross-device, the one worth doing properly:** get a recovery code on the
+phone, enter it in the browser build. The browser should show **the phone's
+scores and streak**, and the phone should be signed out. Then check
+`curl -s $API/v1/devices -H "authorization: Bearer …"` shows two devices —
+a third would evict the oldest.
+
+### 6e · Payments (test mode first)
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Die with 0 respawns; tap the empty ♡ | The **shop** opens with an 8-character player code |
+| 2 | Tap **Pay with Paystack** | The code is copied; the hosted page opens |
+| 3 | Pay KES 50+ in test mode with the code in **Player code** | Webhook fires |
+| 4 | Back in the game, tap **I have paid** | Balance shows **♥ 3** |
+| 5 | Die, tap the ♥ | Run continues; balance drops to 2 |
+| 6 | Finish that run and check the board | The score is **not ranked** — continued runs earn feathers, never rank |
+
+### 6f · Offline
+
+Turn off the network entirely.
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Play a full run | Plays perfectly. No hang, no error |
+| 2 | Reconnect, play again | The queued run appears on the board |
+
+**This is the acceptance bar: the game is never worse offline than it was
+before there was a server.**
+
+---
+
+## 7 · Web export and the bundle
+
+In Godot: **Project ▸ Export ▸ Add ▸ Web**.
 
 - **Leave "Extensions Support" off.** Single-threaded is the Godot 4.3+ default
   and needs no `Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy`
   headers, so the bundle is plain static files anywhere. Dovefall spawns no
-  threads and loses nothing. It also keeps the option of embedding the game in
-  a page alongside H5 Games Ads, which cross-origin isolation would forbid.
-- Set `exclude_filter` to `store/*` here too.
+  threads and loses nothing — and it keeps the option of embedding the game in
+  a page alongside H5 Games Ads, which cross-origin isolation forbids.
+- Set `exclude_filter` to `store/*`.
 - Export to `web/index.html`.
 
 ```bash
 du -sh web/
-```
-
-**You should see** roughly 25–40 MB uncompressed, of which the `.wasm` is most.
-Brotli takes it to about 5 MB on the wire — **write down the real number**, it
-is the one input to the whole cost model that I estimated rather than measured.
-
----
-
-## 7 · Publish the bundle
-
-The bundle is served by a **second Worker** (`site/`) whose only job is static
-assets. Static assets are unmetered on the free plan, which is the whole reason
-the ~5 MB engine download does not come from the VM.
-
-```bash
-cd ../site
+cd ../skills/dovefall/site
 mkdir -p public/dovefallgame
-cp -r ../../<godot-project>/web/* public/dovefallgame/
+cp -r ../../../<godot-project>/web/* public/dovefallgame/
 npx wrangler deploy
 ```
 
-**You should see** a `https://dovefall-site.<subdomain>.workers.dev` URL. The
-game is at **`/dovefallgame/`** on it — the trailing slash matters, and
-`html_handling` adds it for you.
+**You should see** ~25–40 MB uncompressed (Brotli takes it to about 5 MB on the
+wire — **write the real number down**, it is the one input to the cost model I
+estimated rather than measured), and a
+`https://dovefall-site.<subdomain>.workers.dev` URL.
 
-Now close the CORS loop, because the Worker refuses browser origins it does not
-know:
+The game is at **`/dovefallgame/`** on it. Close the CORS loop:
 
 ```bash
-# edit worker/wrangler.toml -> ALLOWED_ORIGINS, add the site URL
+# worker/wrangler.toml → ALLOWED_ORIGINS, add the site URL
 cd ../worker && npx wrangler deploy
 ```
 
-**You should see** the game load, play, and a score appear in
-`curl -s $API/v1/board/normal` after a run. A CORS error in the browser console
-names the origin it wanted; put that exact string in `ALLOWED_ORIGINS`.
+**You should see** the game load in a browser, play, and a score appear in
+`curl -s $API/v1/board/normal`. A CORS error in the console names the origin it
+wanted; put that exact string in `ALLOWED_ORIGINS`.
 
-**This is a live, shareable game.** Everything below is about the address bar.
+**At this point the game is live and shareable.** Everything below is the
+address bar.
 
 ---
 
-## 7a · Moving it to gachichio.org/dovefallgame
+## 8 · gachichio.org/dovefallgame
 
-The game runs fine on `workers.dev`. Putting it on your own domain is a
-separate, riskier job, and it is worth understanding what it touches before you
-start — `gachichio.org` currently serves Kenya Pulse from Caddy on the VM.
+This is the only step that touches a domain currently serving live traffic.
 
-**The trap to avoid.** Do NOT have Caddy `reverse_proxy` the game. Every byte
-would then flow out of africa-south1 at $0.12/GB, which is roughly $72/month at
-100,000 web players — the exact bill this whole architecture exists to avoid. A
-302 redirect to the workers.dev URL is free and safe, but changes the address
-bar, which defeats the point.
+**The trap to avoid first.** Do **not** have Caddy `reverse_proxy` the game.
+Every byte would flow out of africa-south1 at $0.12/GB — roughly **$72/month at
+100,000 web players**, the exact bill this architecture exists to avoid. A 302
+redirect is free and safe but changes the address bar, which defeats the point.
 
-**The way that works.** Put the zone on Cloudflare and let a Worker route claim
-one path:
+**The way that works:** put the zone on Cloudflare and let a Worker route claim
+one path. Caddy keeps serving everything else, untouched.
 
-1. Add `gachichio.org` to Cloudflare (free plan). It imports your existing DNS.
-2. **Check the imported records against your current zone before switching.**
-   Anything missed becomes an outage of that service, not of the game.
-3. Change the nameservers at your registrar. Propagation is usually under an
-   hour and can be far longer; do not start this at 11pm.
+1. Add `gachichio.org` to Cloudflare (free plan). It imports your DNS.
+2. **Check every imported record against your current zone before switching.**
+   Anything missed becomes an outage of that service — Kenya Pulse included.
+3. Change the nameservers at your registrar. Usually under an hour; sometimes
+   far longer.
 4. Set the root A record (`34.35.177.164`) to **Proxied** — the orange cloud.
-   This is load-bearing: a Worker route cannot fire on a hostname whose traffic
-   never reaches Cloudflare, and a grey-cloud record fails *silently*.
+   Load-bearing: a Worker route cannot fire on a hostname whose traffic never
+   reaches Cloudflare, and a grey-cloud record **fails silently**.
 5. SSL/TLS mode **Full**, not Flexible. Flexible sends plaintext to your origin.
-   Caddy's Let's Encrypt renewal uses an HTTP-01 challenge that the proxy can
-   interfere with; if renewal starts failing, install a **Cloudflare Origin
-   Certificate** on the VM and move to Full (strict).
-6. Uncomment the `routes` block in `site/wrangler.toml` and `npx wrangler
-   deploy`.
+   If Caddy's Let's Encrypt renewal starts failing behind the proxy, install a
+   **Cloudflare Origin Certificate** on the VM and move to Full (strict).
+6. Uncomment the `routes` block in `site/wrangler.toml`, then:
+
+```bash
+cd site && npx wrangler deploy
+```
 
 **You should see** `https://gachichio.org/dovefallgame/` serve the game, and
-every other path on gachichio.org still served by Caddy exactly as before.
-
-Then set `Net.SHARE_URL` to `https://gachichio.org/dovefallgame`, re-export,
-and redeploy the site Worker. Until you do, every share card carries the old
-link — which is why it is worth deciding the address before you invite anyone.
+every other path on gachichio.org served by Caddy exactly as before.
 
 **Rollback:** comment the route out and redeploy, or set the A record back to
-grey cloud. Both take under a minute and neither touches the VM.
+grey cloud. Under a minute, and neither touches the VM.
 
 ---
 
-## 7b · Wire Paystack
+## 9 · Paystack
 
-Three one-time steps in the [Paystack dashboard](https://dashboard.paystack.com):
+Three one-time steps in the [dashboard](https://dashboard.paystack.com):
 
-1. **The payment page** — `paystack.shop/pay/dovefall`. Add a custom field
-   named **Player code** (variable name `player_code`). The game shows each
-   player an 8-character code and copies it to their clipboard before opening
-   the page; this field is where they paste it. The webhook parser also
-   accepts the code from any custom field, so an imperfect field name still
-   credits.
-2. **The webhook** — Settings → API Keys & Webhooks → Webhook URL:
-   `https://dovefall-api.<subdomain>.workers.dev/v1/paystack/webhook`.
-   Set it for test mode first, live mode when you switch keys.
-3. **Amount** — the page can leave the amount open. The server credits
-   **3 respawns for any KES payment of 50.00 or more** (`RESPAWN_MIN_SUBUNITS`
-   in `wrangler.toml`, in cents). Below the floor, or in another currency, the
-   payment is recorded in the `payments` table but grants nothing — that table
-   is your audit trail for "I paid and got nothing", including the code the
-   payer typed.
+1. **Payment page** `paystack.shop/pay/dovefall` — add a custom field named
+   **Player code** (variable `player_code`). The webhook parser also accepts
+   the code from any custom field, so an imperfect name still credits.
+2. **Webhook URL** → `$API/v1/paystack/webhook`. Test mode first.
+3. **Amount** can stay open. The server credits **3 respawns for any KES
+   payment of 50.00 or more** (`RESPAWN_MIN_SUBUNITS`, in cents). Below the
+   floor, or another currency, the payment is **recorded but not credited** —
+   the `payments` table is your audit trail for "I paid and got nothing",
+   including the code the payer actually typed.
 
 Smoke-test the webhook against production with a signed fake:
 
 ```bash
-SECRET=sk_test_your_key            # the same one you gave wrangler
+SECRET=sk_test_your_key
 CODE=$(curl -s $API/v1/respawns -H "authorization: Bearer $TOKEN" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["pay_code"])')
 
@@ -353,75 +400,67 @@ curl -s -X POST $API/v1/paystack/webhook \
   -H "content-type: application/json" -H "x-paystack-signature: $SIG" -d "$BODY"
 ```
 
-**You should see** `{"received":true,"status":"credited","duplicate":false}` —
-and `/v1/me` now shows `"respawns": 3`. Replay the same curl: `duplicate: true`
-and the balance stays 3. Then clean up:
-
-```bash
-npx wrangler d1 execute dovefall --remote --command "DELETE FROM payments WHERE reference = 'smoke_pay_1'"
-```
-
-**On sharing, honestly:** the web build opens the real share sheet
-(`navigator.share`, image included where the browser allows it — Chrome on
-Android does). **The Android native build has no share sheet yet** — Godot has
-no built-in one; until a share plugin is added, the card is saved and the link
-is copied to the clipboard, and `ShareCard.gd` marks the slot where the plugin
-call goes.
-
----
-
-## 8 · Rollback
-
-Every layer rolls back independently, in seconds:
-
-```bash
-npx wrangler deployments list                    # Worker
-npx wrangler rollback [--message "why"]
-
-npx wrangler pages deployment list --project-name dovefall
-# promote an earlier deployment from the dashboard
-```
-
-For the game itself, `API_BASE := ""` in `Net.gd` disables every network call
-and returns the build to pure local play. That is the fastest rollback you have
-and it needs no server.
-
-The database has no rollback. See §10.
-
----
-
-## 9 · Watch the write budget
-
-The free plan gives **100,000 D1 row-writes a day**, and an index costs an extra
-write when its column is touched. The schema is built so that a run which does
-not beat the player's stored best writes **nothing** — only a personal best, a
-daily best, or a save sync touches disk.
+**You should see** `{"received":true,"status":"credited","duplicate":false}`,
+and `/v1/me` now reporting `"respawns": 3`. Replay the same curl: `duplicate:
+true` and the balance **stays** 3. Clean up:
 
 ```bash
 npx wrangler d1 execute dovefall --remote --command \
-  "SELECT (SELECT COUNT(*) FROM players) AS players,
-          (SELECT COUNT(*) FROM bests)   AS bests,
-          (SELECT COUNT(*) FROM rejects) AS rejects"
+  "DELETE FROM payments WHERE reference = 'smoke_pay_1'"
 ```
-
-Watch `rejects` — it is the answer to "what does cheating actually look like
-here", and it only fills when someone attempts a score that would have topped
-their own best. If it stays empty, do not build the replay validator.
-
-Other ceilings, for reference: 100,000 Worker requests/day, 10 ms CPU per
-request, 5 GB D1 storage. At 300 bytes a player, storage will not bind before
-anything else does.
 
 ---
 
-## 10 · Backups — not optional
+## 10 · Staying inside the free plan
 
-This database is now the only copy of every player's identity and progress.
-Losing it loses every score, and unlike the game itself, scores cannot be
-rebuilt. `developer.md` §8.5 mandates 3-2-1 and a restore drill every 90 days.
+An **hourly cron** (`0 * * * *`, one of your five free triggers) prunes expired
+rows and records the day's projected usage. Hourly rather than nightly on
+purpose: a nightly job tells you that you blew the budget yesterday, which is a
+post-mortem, not a guard.
+
+**How it measures without spending what it measures.** A counter incremented on
+every write would double the write cost. Instead the cron counts rows by
+timestamp — reads are the abundant budget, 5,000,000/day against 100,000
+writes — and extrapolates. That is 24 writes a day to watch 100,000.
+
+**What happens at 80%.** The Worker sheds writes a player would not notice and
+keeps the ones they would:
+
+| Shed at 80% | Never shed |
+|---|---|
+| Reject logging | Scores and personal bests |
+| Last-seen touches | Daily board entries |
+| Cloud saves (window widens 30s → 300s) | Streaks |
+
+Degradation, not an outage. Check it any time:
 
 ```bash
-# On the Lenovo, nightly
+curl -s $API/v1/health | python3 -m json.tool
+```
+
+**You should see** `budget.shedding: false` and every `pct` well under 80.
+
+Retention: `daily` 35 days · `rejects` 30 · `payments` 400 (real money keeps a
+year-plus audit trail) · `ops` 90. **`bests` is never pruned** — a personal best
+is the point of the game.
+
+**Software currency.** Workers is serverless: there is no OS to patch. The
+equivalents are `compatibility_date` in `wrangler.toml` (raise it deliberately,
+never automatically — it changes runtime behaviour) and the one dev dependency,
+`wrangler`. `.github/renovate.json` opens a batched PR on Mondays and raises
+security patches immediately; `.github/workflows/ci.yml` runs the suite on every
+push **and weekly**, so a runtime change that breaks us is found by CI rather
+than a player.
+
+---
+
+## 11 · Backups — not optional
+
+This database is the only copy of every player's identity, progress and streak.
+Losing it loses all of it, and unlike the game itself, it cannot be rebuilt.
+
+```bash
+# Nightly, on the Lenovo
 npx wrangler d1 export dovefall --remote --output "dovefall-$(date +%F).sql"
 gzip "dovefall-$(date +%F).sql"
 ```
@@ -429,7 +468,7 @@ gzip "dovefall-$(date +%F).sql"
 Three copies: the Lenovo, an external disk, Backblaze B2. Under 100 MB, so free.
 
 **Then restore one into a scratch database and query it.** An untested backup is
-a rumour. Log the drill date in this file:
+a rumour. Log the drill here:
 
 | Drill | Date | Result |
 |---|---|---|
@@ -437,18 +476,35 @@ a rumour. Log the drill date in this file:
 
 ---
 
+## 12 · Rollback
+
+Every layer rolls back independently:
+
+```bash
+npx wrangler deployments list && npx wrangler rollback     # either Worker
+```
+
+For the game itself, `API_BASE := ""` returns the build to pure local play.
+That is the fastest rollback you have and it needs no server at all.
+
+The database has no rollback. See §11.
+
+---
+
 ## What this deployment does not do
 
 Stated plainly so nobody assumes otherwise later:
 
-- **It does not replay runs.** It checks that a score is arithmetically possible
-  for its duration, which catches the crude attacks and nothing subtle. The
-  replay log is captured and stored from day one, so historical runs become
-  checkable the day a validator lands — but no validator ships until
-  `tools/golden_vectors.gd` has been run under a real Godot build and the
-  JavaScript port is proven against it. An unverified validator is worse than
-  none, because it is believed.
-- **It does not fix the playfield defect.** See `patches/07`.
-- **It does not wire Google sign-in in the game.** The endpoints and the
-  verification are built and tested; the platform-side call that obtains an ID
-  token is not. Guest play works today and covers the whole loop.
+- **It does not replay runs.** It checks that a score is arithmetically
+  possible for its duration, which catches crude attacks and nothing subtle.
+  The replay log is captured and stored from day one, so historical runs become
+  checkable the day a validator lands — but none ships until
+  `tools/golden_vectors.gd` has run under a real Godot build and the JavaScript
+  port is proven against it. An unverified validator is worse than none,
+  because it is believed.
+- **It does not wire Google sign-in in the game.** The endpoints and the token
+  verification are built and tested; the platform call that obtains an ID token
+  is not. Guest play covers the whole loop.
+- **The Android build has no share sheet.** Godot has none built in. On web the
+  real share sheet opens with the image; elsewhere the card is saved and the
+  link copied. `ShareCard.gd` marks where the plugin call goes.

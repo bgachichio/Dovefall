@@ -1,6 +1,22 @@
 --- a/autoload/SaveData.gd
 +++ b/autoload/SaveData.gd
-@@ -67,11 +67,59 @@
+@@ -32,6 +32,7 @@
+ 		"stats": {"runs": 0, "gates": 0, "best_chapter": 0},
+ 		"daily": {"day": "", "score": 0},
+ 		"install_day": "",
++		"rev": 0,               # monotonic; the server refuses to go backwards
+ 		"ads_removed": false,   # display hint ONLY — see note below
+ 	}
+ 
+@@ -59,6 +60,7 @@
+ 
+ 
+ func write() -> void:
++	data["rev"] = int(data.get("rev", 0)) + 1
+ 	var f := FileAccess.open_encrypted_with_pass(PATH, FileAccess.WRITE, _key())
+ 	if f == null:
+ 		push_warning("Save not writable.")
+@@ -67,11 +69,59 @@
  	f.close()
  
  
@@ -61,3 +77,56 @@
  
  
  func _migrate(incoming: Dictionary) -> void:
+@@ -149,6 +199,52 @@
+ 		write()
+ 
+ 
++# ------------------------------------------------------------------ cloud
++## Fold a server save into this one WITHOUT ever losing progress.
++##
++## Not last-write-wins: a phone that has been offline for a week has a lower
++## rev and newer scores, and last-write-wins would throw them away. Every field
++## merges by a rule that cannot go backwards — max for numbers, union for
++## skins — so the result is at least as good as either side. That is worth more
++## than being clever about ordering.
++func merge_remote(blob: String) -> bool:
++	var parsed = JSON.parse_string(blob)
++	if typeof(parsed) != TYPE_DICTIONARY:
++		return false
++	var remote: Dictionary = parsed
++	var changed := false
++
++	for mode in Config.MODE_ORDER:
++		var theirs := int(remote.get("best", {}).get(mode, 0))
++		if theirs > best_for(mode):
++			data["best"][mode] = theirs
++			changed = true
++
++	for key in ["feathers"]:
++		var theirs := int(remote.get(key, 0))
++		if theirs > int(data.get(key, 0)):
++			data[key] = theirs
++			changed = true
++
++	for skin in remote.get("skins", []):
++		if not data["skins"].has(skin):
++			data["skins"].append(skin)
++			changed = true
++
++	var their_stats: Dictionary = remote.get("stats", {})
++	for key in ["runs", "gates", "best_chapter"]:
++		var theirs := int(their_stats.get(key, 0))
++		if theirs > int(data["stats"].get(key, 0)):
++			data["stats"][key] = theirs
++			changed = true
++
++	# Settings are the exception: they are per-device preferences (handedness,
++	# reduced flashing) and merging them across devices would be an intrusion.
++	if changed:
++		write()
++	return changed
++
++
+ # ------------------------------------------------------------------ streak
+ func _roll_streak() -> void:
+ 	var today := Rng.today_key()

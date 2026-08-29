@@ -1,0 +1,10 @@
+--- a/autoload/AppState.gd
++++ b/autoload/AppState.gd
+@@ -37,6 +37,7 @@
+ 	countdown = 0.0
+ 	get_tree().paused = true
+ 	SaveData.write()          # save on pause, never on quit
++	Net.push_save()           # and sync it: pausing is how a session ends
+ 	game_paused.emit()
+ 
+ 

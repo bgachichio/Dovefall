@@ -28,9 +28,12 @@ export const BANDS = [
   { from: 50, gap_x: 0.806, spd_x: 1.25 },
 ];
 
-/** Design viewport from project.godot. */
+/**
+ * Design viewport from project.godot. With stretch/aspect="keep" this is the
+ * viewport on every device, not merely the design target — which is what makes
+ * the bounds below the same arithmetic everywhere.
+ */
 export const BASE_W = 1080;
-export const BASE_H = 1920;
 
 /** Bird's horizontal station, as a fraction of viewport width (Game.gd). */
 export const BIRD_X_FRAC = 0.26;

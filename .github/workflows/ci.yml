@@ -1,0 +1,28 @@
+# Every push runs the suite. The determinism test is the one that matters:
+# if the server's port of Rng.gd stops reproducing 4075699207, the server and
+# the game no longer share a physics and nothing else here can be trusted.
+name: test
+
+on:
+  push:
+  pull_request:
+  # Weekly, so a dependency or runtime change that breaks us is found by CI
+  # rather than by a player.
+  schedule:
+    - cron: "0 4 * * 1"
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+      - run: npm test
+      - name: Fail on known vulnerabilities
+        run: npm audit --audit-level=high

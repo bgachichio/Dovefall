@@ -12,6 +12,17 @@ workers_dev = true
 [observability]
 enabled = true
 
+# ---------------------------------------------------------------- maintenance
+#
+# Hourly, on the hour. Prunes expired rows and records the day's projected
+# usage, so the shed flag is never more than an hour stale. Cron triggers are
+# free on the Workers free plan (5 per account); this uses one.
+#
+# Hourly rather than nightly on purpose: a nightly job discovers you blew the
+# budget the morning after, which is not a guard, it is a post-mortem.
+[triggers]
+crons = ["0 * * * *"]
+
 [vars]
 # Origins allowed to call this API from a browser. The Android build sends no
 # Origin header and is unaffected. Never "*" — this API carries a bearer token.

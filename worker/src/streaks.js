@@ -16,12 +16,6 @@
 // clocks: every function takes the day keys it needs.
 
 /** Days are 'YYYY-MM-DD', UTC — the same key Rng.today_key() produces. */
-export function shiftDay(dayKey, days) {
-  const [y, m, d] = dayKey.split('-').map(Number);
-  const t = Date.UTC(y, m - 1, d) + days * 86400000;
-  return new Date(t).toISOString().slice(0, 10);
-}
-
 export function daysBetween(fromDay, toDay) {
   const [ay, am, ad] = fromDay.split('-').map(Number);
   const [by, bm, bd] = toDay.split('-').map(Number);
