@@ -26,7 +26,27 @@
  
  	ui = CanvasLayer.new()
  	ui.layer = 10
-@@ -110,15 +122,70 @@
+@@ -75,15 +87,16 @@
+ 	hud_bar.visible = false
+ 	var b := Button.new()
+ 	b.text = "\u23F8"
+-	b.custom_minimum_size = Vector2(112, 112)
++	# 44 CSS px floor (design.md 8.2). 112 measured 39 CSS px on a phone.
++	b.custom_minimum_size = Vector2(132, 132)
+ 	b.add_theme_font_size_override("font_size", 46)
+ 	b.flat = true
+ 	b.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
+ 	b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+-	b.offset_left = -140
++	b.offset_left = -160
+ 	b.offset_top = 30
+ 	b.offset_right = -28
+-	b.offset_bottom = 142
++	b.offset_bottom = 162
+ 	b.pressed.connect(func(): AppState.pause_now())
+ 	hud_bar.add_child(b)
+ 	ui.add_child(hud_bar)
+@@ -110,15 +123,70 @@
  	t.play_pressed.connect(_start_run)
  	t.wardrobe_pressed.connect(_open_wardrobe)
  	t.settings_pressed.connect(_open_settings)
@@ -100,7 +120,7 @@
  
  
  func _open_wardrobe() -> void:
-@@ -133,6 +200,22 @@
+@@ -133,6 +201,22 @@
  	s.set_script(Settings)
  	_swap(s)
  	s.closed.connect(show_title)

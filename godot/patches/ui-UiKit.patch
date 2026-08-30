@@ -1,6 +1,36 @@
 --- a/ui/UiKit.gd
 +++ b/ui/UiKit.gd
-@@ -108,6 +108,34 @@
+@@ -6,7 +6,19 @@
+ ## cannot be broken by a hand-edited scene file with a wrong load_steps count.
+ 
+ const PAD := 34
+-const ROW := 96
++
++## Touch targets, in design units, sized against design.md 8.2: 44x44 minimum,
++## 48x48 for primary actions — and that floor is in CSS pixels, not ours.
++##
++## With stretch/aspect="keep" the 1080x1920 viewport is scaled to fit, so on the
++## smallest common phone (375 CSS px wide) one design unit is 0.347 CSS px. The
++## old ROW of 96 therefore measured 33 CSS px: comfortably illegal, and it
++## failed on every phone while passing on the tablet nobody tests with.
++##
++##   44 CSS px floor -> 127 design units
++##   48 CSS px floor -> 139 design units
++const ROW := 140          # primary actions and text fields
++const ROW_SECONDARY := 128  # segmented choices
+ 
+ 
+ static func screen(title_key: String) -> VBoxContainer:
+@@ -92,7 +104,7 @@
+ 		b.button_group = group
+ 		b.button_pressed = (i == current)
+ 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+-		b.custom_minimum_size = Vector2(0, 78)
++		b.custom_minimum_size = Vector2(0, ROW_SECONDARY)
+ 		b.add_theme_font_size_override("font_size", 28)
+ 		b.add_theme_stylebox_override("normal", _box(Color("#1B2536")))
+ 		b.add_theme_stylebox_override("hover", _box(Color("#243247")))
+@@ -108,6 +120,34 @@
  	return box
  
  

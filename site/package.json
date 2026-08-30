@@ -1,0 +1,15 @@
+{
+  "name": "dovefall-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Dovefall game bundle, served as Cloudflare Workers static assets.",
+  "scripts": {
+    "verify": "node verify-export.mjs public/dovefallgame",
+    "deploy": "npm run verify && wrangler deploy",
+    "preview": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "4.42.0"
+  }
+}

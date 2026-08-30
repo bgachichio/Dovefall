@@ -5,8 +5,12 @@
 # the ~5 MB engine download costs nothing however many people play — which is
 # the entire reason the bundle does not come from the VM.
 #
-# Directory layout mirrors the URL: put the Godot export in
-# public/dovefallgame/ and it is served at <host>/dovefallgame/.
+# Directory layout mirrors the URL: the Godot export goes in
+# public/dovefallgame/ and is served at <host>/dovefallgame/.
+#
+# Run `npm run verify` before every deploy. It blocks a threaded export, an
+# absolute path, or a missing engine — each of which ships a page that loads
+# and does nothing.
 
 name = "dovefall-site"
 compatibility_date = "2026-08-01"
@@ -17,22 +21,37 @@ directory = "./public"
 
 # Individual files (foo.html) serve without a trailing slash; folder indexes
 # (dovefallgame/index.html) serve WITH one. This matters more than it looks:
-# Godot's index.html references index.js and index.wasm relatively, so a
-# request to /dovefallgame with no slash would resolve them against the root
-# and 404 the engine. The redirect to /dovefallgame/ is what stops that.
+# Godot's index.html references index.js and index.wasm RELATIVELY, so a request
+# to /dovefallgame with no slash would resolve them against the root and 404 the
+# engine. The redirect to /dovefallgame/ is what stops that.
 html_handling = "auto-trailing-slash"
 not_found_handling = "404-page"
 
-# ---------------------------------------------------------------- routes
+# ---------------------------------------------------------------- addressing
 #
-# Uncomment ONLY after gachichio.org's nameservers point at Cloudflare AND the
-# root A record is Proxied (orange cloud). A Worker route cannot fire on a
-# hostname whose traffic never reaches Cloudflare, so a grey-cloud record here
-# fails silently — the VM keeps serving and you get a 404 with no error.
+# Two ways to put this on gachichio.org. Both need the zone on Cloudflare —
+# a Worker route and a Pages-style custom domain alike can only fire on a
+# hostname whose traffic actually reaches Cloudflare — so the choice is about
+# blast radius, not about avoiding the DNS move.
 #
-# Everything not matching this pattern still goes to Caddy on the VM, so the
-# rest of gachichio.org is untouched.
+# A · PATH   gachichio.org/dovefallgame/        <- what we agreed
+#     Requires the ROOT A record to be Proxied (orange cloud), so every
+#     request to gachichio.org passes through Cloudflare on its way to Caddy.
+#     Caddy still serves everything that is not /dovefallgame*.
 #
-# routes = [
-#   { pattern = "gachichio.org/dovefallgame*", zone_name = "gachichio.org" }
-# ]
+#     routes = [
+#       { pattern = "gachichio.org/dovefallgame*", zone_name = "gachichio.org" }
+#     ]
+#
+# B · SUBDOMAIN   dovefall.gachichio.org/dovefallgame/
+#     A CNAME for `dovefall` only. The root A record stays grey-cloud and
+#     points at the VM exactly as it does now, so a traffic spike on the game
+#     cannot touch the origin serving Kenya Pulse. Strictly safer; a different
+#     URL.
+#
+#     routes = [
+#       { pattern = "dovefall.gachichio.org/*", zone_name = "gachichio.org" }
+#     ]
+#
+# Uncomment exactly one. Leave both commented and the game stays on
+# workers.dev, which is a perfectly good place to launch from tonight.

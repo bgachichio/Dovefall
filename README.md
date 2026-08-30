@@ -17,7 +17,7 @@ Play: **https://gachichio.org/dovefallgame**
 |---|---|
 | `DEPLOY.md` | **Start here.** Deploy from a clean checkout, with a gameplay validation pass |
 | `worker/` | The API: Worker + D1, zero runtime dependencies. `npm test` runs 130 tests |
-| `site/` | The game bundle, served as Workers static assets — unmetered |
+| `site/` | The game bundle as Workers static assets — unmetered. `npm run verify` preflights the export |
 | `godot/patches/` | Changes to the game project, as applyable diffs |
 | `godot/autoload/`, `godot/ui/` | New files to copy into the Godot project |
 | `godot/tools/` | Golden-vector emitter, for a future replay validator |
@@ -44,3 +44,10 @@ physics and nothing else here can be trusted. It is the first test for a reason.
 - **`stretch/aspect="keep"`.** The viewport is exactly 1080×1920 on every
   screen. This is not cosmetic — under `expand` the game was unplayable in
   landscape. See `godot/patches/07-playfield-fairness.md`.
+- **Single-threaded web export, always.** Threads need COOP/COEP isolation,
+  which blocks embedding the game anywhere carrying third-party frames, and
+  this game spawns none. `site/verify-export.mjs` refuses to deploy a threaded
+  build.
+- **Touch targets are 140 design units.** With the viewport scaled to fit,
+  one design unit is 0.35 CSS px on a small phone; the 96-unit buttons this
+  started with measured 33 CSS px against a 48 px floor.

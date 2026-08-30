@@ -188,7 +188,8 @@ mkdir -p tools && cp ../skills/dovefall/godot/tools/*.gd tools/
 | `autoload-SaveData.patch` | Per-install id (`OS.get_unique_id()` is empty on Web), a `rev` counter, and `merge_remote()` — the conflict-free cloud-save merge. |
 | `autoload-AppState.patch` | Syncs the save on pause, which is how a session ends. |
 | `autoload-Config.patch` | New strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
-| `ui-*.patch` | Text fields, the Credits button, the account entry point. |
+| `ui-UiKit.patch` | Text fields, **and touch targets raised to the design.md 8.2 floor** — every button measured 27–40 CSS px on a phone against a 44/48 px minimum. |
+| `ui-*.patch` | The Credits button, the account entry point. |
 | `scripts-Main.patch` | Routing: leaderboard, respawn shop, first-play tutorial gate. |
 
 Then set two constants in `autoload/Net.gd`:
@@ -224,6 +225,7 @@ line is a thing that has broken in this codebase or could.
 | 3 | Resize while a run is in progress | Gates do not jump. The course is unchanged |
 | 4 | ★ On the Pixel, check the top-left counters | Best and feather counters are **clear of the status bar and punch-hole** |
 | 5 | ★ On a tablet or a 4:3 window | Portrait column again, bars left and right |
+| 6 | ★ On the smallest phone you can find, tap every menu button | Nothing needs a second attempt. Buttons are 140 design units — 48+ CSS px even at 375 px wide |
 
 **The determinism check.** Add a temporary print of the first three gate `top`
 values for seed `0xD0FE` in `normal`, then read it on desktop, on the Pixel, and
@@ -298,28 +300,36 @@ before there was a server.**
 
 In Godot: **Project ▸ Export ▸ Add ▸ Web**.
 
-- **Leave "Extensions Support" off.** Single-threaded is the Godot 4.3+ default
-  and needs no `Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy`
-  headers, so the bundle is plain static files anywhere. Dovefall spawns no
-  threads and loses nothing — and it keeps the option of embedding the game in
-  a page alongside H5 Games Ads, which cross-origin isolation forbids.
-- Set `exclude_filter` to `store/*`.
-- Export to `web/index.html`.
+| Setting | Value | Why |
+|---|---|---|
+| Export Type / Threads | **OFF** | Single-threaded is the Godot 4.3+ default. Threads need `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` isolation, which **blocks embedding the game in any page carrying third-party frames** — H5 Games Ads, itch.io, a portal — and Dovefall spawns no threads. It is a fixed-step 2D game. Threads buy nothing and cost the ad surface. |
+| Export path | `web/index.html` | Anything else and the folder URL 404s. |
+| `exclude_filter` | `store/*` | 144 KB of Play listing artwork no player ever sees. |
 
 ```bash
-du -sh web/
 cd ../skills/dovefall/site
 mkdir -p public/dovefallgame
 cp -r ../../../<godot-project>/web/* public/dovefallgame/
-npx wrangler deploy
+npm run verify
 ```
 
-**You should see** ~25–40 MB uncompressed (Brotli takes it to about 5 MB on the
-wire — **write the real number down**, it is the one input to the cost model I
-estimated rather than measured), and a
-`https://dovefall-site.<subdomain>.workers.dev` URL.
+**You should see** a file listing, an uncompressed and an over-the-wire size,
+and `Single-threaded export — no COOP/COEP headers needed anywhere.`
 
-The game is at **`/dovefallgame/`** on it. Close the CORS loop:
+The preflight **blocks the deploy** on: a threaded export, an entry file that
+is not `index.html`, an absolute path that would 404 under `/dovefallgame/`, or
+a missing engine. Each of those ships a page that loads and then does nothing.
+
+**Write the over-the-wire number down.** It is the one input to the cost model
+that was estimated rather than measured, and everything about bandwidth follows
+from it.
+
+```bash
+npm run deploy          # verify, then wrangler deploy
+```
+
+**You should see** a `https://dovefall-site.<subdomain>.workers.dev` URL, with
+the game at **`/dovefallgame/`**. Close the CORS loop:
 
 ```bash
 # worker/wrangler.toml → ALLOWED_ORIGINS, add the site URL
@@ -335,37 +345,56 @@ address bar.
 
 ---
 
-## 8 · gachichio.org/dovefallgame
+## 8 · Putting it on gachichio.org
 
-This is the only step that touches a domain currently serving live traffic.
+This is the only step that touches a domain already serving live traffic. Do it
+when you have a calm hour, not at the end of a long night.
 
 **The trap to avoid first.** Do **not** have Caddy `reverse_proxy` the game.
 Every byte would flow out of africa-south1 at $0.12/GB — roughly **$72/month at
-100,000 web players**, the exact bill this architecture exists to avoid. A 302
-redirect is free and safe but changes the address bar, which defeats the point.
+100,000 web players**, the exact bill this architecture exists to avoid.
 
-**The way that works:** put the zone on Cloudflare and let a Worker route claim
-one path. Caddy keeps serving everything else, untouched.
+Both options below need `gachichio.org` on Cloudflare DNS: a Worker route can
+only fire on a hostname whose traffic actually reaches Cloudflare. The choice
+between them is about **blast radius**, not about avoiding the DNS move.
+
+### Common to both
 
 1. Add `gachichio.org` to Cloudflare (free plan). It imports your DNS.
 2. **Check every imported record against your current zone before switching.**
    Anything missed becomes an outage of that service — Kenya Pulse included.
 3. Change the nameservers at your registrar. Usually under an hour; sometimes
    far longer.
+
+### A · The path — `gachichio.org/dovefallgame/`
+
+What we agreed, and the URL already baked into `Net.SHARE_URL`.
+
 4. Set the root A record (`34.35.177.164`) to **Proxied** — the orange cloud.
-   Load-bearing: a Worker route cannot fire on a hostname whose traffic never
-   reaches Cloudflare, and a grey-cloud record **fails silently**.
-5. SSL/TLS mode **Full**, not Flexible. Flexible sends plaintext to your origin.
-   If Caddy's Let's Encrypt renewal starts failing behind the proxy, install a
+   Load-bearing: a grey-cloud record makes the Worker route **fail silently**.
+5. SSL/TLS **Full**, not Flexible — Flexible sends plaintext to your origin. If
+   Caddy's Let's Encrypt renewal starts failing behind the proxy, install a
    **Cloudflare Origin Certificate** on the VM and move to Full (strict).
-6. Uncomment the `routes` block in `site/wrangler.toml`, then:
+6. Uncomment routing block **A** in `site/wrangler.toml`, then `npx wrangler deploy`.
 
-```bash
-cd site && npx wrangler deploy
-```
+**The cost of this option:** every request to gachichio.org now passes through
+Cloudflare on its way to Caddy. That is normal and usually an improvement, but
+it is a change to how your whole site is served, not just the game.
 
-**You should see** `https://gachichio.org/dovefallgame/` serve the game, and
-every other path on gachichio.org served by Caddy exactly as before.
+### B · The subdomain — `dovefall.gachichio.org/dovefallgame/`
+
+4. Add a **CNAME** `dovefall` → your `workers.dev` hostname. Leave the root A
+   record **grey-cloud**, pointing at the VM exactly as it does now.
+5. Uncomment routing block **B** in `site/wrangler.toml`, then `npx wrangler deploy`.
+6. Change `Net.SHARE_URL` to match, and re-export.
+
+**The advantage:** the root domain is untouched. A traffic spike on the game
+cannot reach the origin serving Kenya Pulse, because it never resolves there.
+If you want the safest possible first week, take this and move to the path
+later — the bundle is identical, only the route line differs.
+
+**You should see**, either way, the game at its URL and every other path on
+gachichio.org served by Caddy exactly as before.
 
 **Rollback:** comment the route out and redeploy, or set the A record back to
 grey cloud. Under a minute, and neither touches the VM.
