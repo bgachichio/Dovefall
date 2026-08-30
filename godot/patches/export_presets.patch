@@ -10,3 +10,98 @@
  export_path="build/dovefall.aab"
  encryption_include_filters=""
  encryption_exclude_filters=""
+@@ -110,4 +111,94 @@
+ permissions/camera=false
+ permissions/record_audio=false
+ permissions/access_fine_location=false
+ permissions/access_coarse_location=false
++
++; ---------------------------------------------------------------- WEB
++;
++; Dovefall on the web is the launch platform. Everything here is chosen, not
++; defaulted; the ones that would silently ship a broken game are marked.
++
++[preset.1]
++
++name="Web"
++platform="Web"
++runnable=true
++advanced_options=true
++dedicated_server=false
++custom_features=""
++export_filter="all_resources"
++include_filter=""
++; Store artwork is 144 KB of screenshots no player ever downloads.
++exclude_filter="store/*"
++; The export MUST be named index.html. Anything else and /dovefallgame/ 404s,
++; because Godot writes its sibling references relative to the page name.
++export_path="build/web/index.html"
++encryption_include_filters=""
++encryption_exclude_filters=""
++seed=0
++encrypt_pck=false
++encrypt_directory=false
++script_export_mode=2
++
++[preset.1.options]
++
++custom_template/debug=""
++custom_template/release=""
++
++variant/extensions_support=false
++
++; ⚑ THE ONE THAT MATTERS. Threads require COOP/COEP cross-origin isolation:
++;   every host must send two headers, the page can no longer embed anything
++;   third-party, and portals will not take it. Dovefall runs a 2D scene on a
++;   fixed 120 Hz step and spawns no threads, so this buys nothing at all.
++;   site/verify-export.mjs refuses to deploy a build with this on.
++variant/thread_support=false
++
++vram_texture_compression/for_desktop=true
++vram_texture_compression/for_mobile=true
++
++html/export_icon=true
++
++; ⚑ The mobile-only gate, the safe-area canvas sizing and the portrait prompt
++;   all live in this file. Export without it and the game silently becomes a
++;   desktop-friendly page again.
++html/custom_html_shell="res://web/shell.html"
++html/head_include=""
++
++; ⚑ 0 = None, 1 = Project, 2 = Adaptive. MUST be 0.
++;   Adaptive sizes the canvas from window.innerWidth/innerHeight, which on iOS
++;   Safari is the toolbar-hidden height — the game runs off the bottom of the
++;   screen — and on Android shrinks when the keyboard opens. The shell sizes it
++;   from the dynamic viewport instead and Godot adopts what it is given.
++html/canvas_resize_policy=0
++
++html/focus_canvas_on_start=true
++
++; Without this a LineEdit raises no keyboard on a phone, so nobody can type
++; their player name. It is "experimental" in the sense of "the only option".
++html/experimental_virtual_keyboard=true
++
++; ---------------------------------------------------------------- installed
++;
++; Add to Home Screen is worth real money here: it removes the browser chrome
++; (107 more CSS px of sky on an iPhone 16), locks portrait in a way no web page
++; can, keeps the game one tap away, and works on a bad connection.
++progressive_web_app/enabled=true
++
++; ⚑ MUST stay false. When true the generated service worker injects COOP/COEP
++;   and re-isolates the page — the same problem as thread_support, arriving by
++;   a different route.
++progressive_web_app/ensure_cross_origin_isolation_headers=false
++
++progressive_web_app/offline_page=""
++
++; ⚑ 0 Fullscreen, 1 Standalone, 2 Minimal UI, 3 Browser.
++progressive_web_app/display=1
++
++; ⚑ 0 Any, 1 Landscape, 2 Portrait. The game is portrait only.
++progressive_web_app/orientation=2
++
++progressive_web_app/icon_144x144="res://store/icon-512.png"
++progressive_web_app/icon_180x180="res://store/icon-512.png"
++progressive_web_app/icon_512x512="res://store/icon-512.png"
++progressive_web_app/background_color=Color(0.121, 0.219, 0.392, 1)

@@ -51,6 +51,35 @@ identical course from a seed, which is also what makes the leaderboard fair.
 sky, so the bars read as part of the world rather than as a frame around it,
 and they follow the palette through the chapter cross-fades.
 
+## What it measures now
+
+`node godot/tools/screen-report.mjs`, and re-measured in a real Chromium by
+`site/test/shell.test.mjs`:
+
+| Device | CSS viewport | Scale | Letterbox | Framebuffer |
+|---|---|---|---|---|
+| Pixel 9 Pro, Chrome | 448 × 936 | 0.415 | 70 px top and bottom | 1280 × 2674 |
+| iPhone 16, Safari | 393 × 745 | 0.364 | 23 px top and bottom | 1179 × 2235 |
+| iPhone 16, installed | 393 × 852 | 0.364 | 77 px top and bottom | 1179 × 2556 |
+| Galaxy S24 | 360 × 700 | 0.333 | 30 px top and bottom | 1080 × 2100 |
+| iPhone SE, Safari | 375 × 553 | 0.288 | 32 px either side | 750 × 1106 |
+
+The scales differ by a factor of 1.4. The four numbers that decide difficulty —
+1080 × 1920 viewport, 336 × 210 dove, 840 px gap, 408 px placement band — are
+byte-identical on every row, because they are computed from the viewport and
+the viewport is a constant. That is the whole claim, and it is why a big phone
+confers no advantage on the leaderboard.
+
+Two second-order effects do vary, and neither touches difficulty:
+
+- **Sharpness.** The framebuffer is the phone's native pixels, so a Pixel 9 Pro
+  renders the 1080-wide design at 1.18× and an iPhone SE at 0.58×. The SE
+  picture is genuinely softer. There are not enough pixels on that screen for
+  it to be otherwise.
+- **Touch targets.** A design unit is worth 0.415 CSS px on a Pixel and 0.288
+  on an SE, so `UiKit.ROW` has to clear the 48 CSS px floor at 0.288 — hence
+  168 units, not 140.
+
 ## How to know it worked
 
 1. `checksum : 4075699207` still prints. (It is untouched by this change; if it
@@ -59,8 +88,11 @@ and they follow the palette through the chapter cross-fades.
    **They must be identical on the Pixel, on the desktop, and in a browser
    window you resize while the game is running.** Before this change they were
    not.
-3. Open the web build on a laptop. The game is a portrait column with sky-
-   coloured bars either side, and it plays. Before this change it did not.
+3. Open the web build on a laptop with `?device=any`. The game is a portrait
+   column with sky-coloured bars either side, and it plays. Before this change
+   it did not. (Without the override a laptop is shown a link instead —
+   Dovefall is a phone game — but the rendering path is the same one a tablet
+   in landscape takes, so it is still worth looking at.)
 
 ## The trade, stated plainly
 

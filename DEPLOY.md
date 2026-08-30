@@ -9,6 +9,7 @@ Three deployables, three URLs:
 |---|---|---|
 | `worker/` | The API — accounts, scores, saves, payments | `dovefall-api.<sub>.workers.dev` |
 | `site/` | The game bundle, as static assets | `gachichio.org/dovefallgame/` |
+| | **Phones and tablets only.** A desktop visitor gets a link, not a download. | |
 | D1 `dovefall` | The database | already created |
 
 **Read §0 before you start.** One step in here changes DNS for a domain that
@@ -28,10 +29,18 @@ The database exists on your account and carries every migration:
 | Migrations | `0001` init · `0002` identity · `0003` respawns · `0004` devices · `0005` streaks · `0006` ops |
 
 **The one honest caveat.** There is no Godot in the environment this was built
-in. The Worker is exhaustively tested — 130 tests, including 60 end-to-end
-against the real schema — but **no GDScript has ever been compiled**. Roughly
-900 lines are new. Budget half an hour at §5 for compile errors; they will be
-trivial and the editor will name every one.
+in. The server is exhaustively tested — 130 tests against the real schema — and
+the web page it is served in is measured in a real Chromium at five phone
+sizes, but **no GDScript has ever been compiled**. Roughly 900 lines are new.
+Budget half an hour at §5 for compile errors; they will be trivial and the
+editor will name every one. That is the only gate left between here and live.
+
+| | Tested how | Count |
+|---|---|---|
+| Worker + D1 | `node:sqlite` against the real migrations | 130 |
+| The web shell | Chromium at Pixel 9 Pro, iPhone 16, Galaxy S24, iPhone SE | 12 |
+| The Godot patches | `git apply` against a pristine tree | 10/10 |
+| The game itself | **not compiled** | — |
 
 **The riskiest step is §8**, the DNS move. Everything before it is additive and
 reversible in under a minute. Do §1–§7 whenever you like; do §8 when you have a
@@ -179,6 +188,10 @@ git apply        ../skills/dovefall/godot/patches/*.patch
 cp ../skills/dovefall/godot/autoload/Net.gd  autoload/
 cp ../skills/dovefall/godot/ui/*.gd          ui/
 mkdir -p tools && cp ../skills/dovefall/godot/tools/*.gd tools/
+
+# The web page the game is served in. The export preset points at
+# res://web/shell.html, so this path is not optional.
+mkdir -p web && cp ../skills/dovefall/godot/web/shell.html web/
 ```
 
 | Patch | Change |
@@ -188,7 +201,8 @@ mkdir -p tools && cp ../skills/dovefall/godot/tools/*.gd tools/
 | `autoload-SaveData.patch` | Per-install id (`OS.get_unique_id()` is empty on Web), a `rev` counter, and `merge_remote()` — the conflict-free cloud-save merge. |
 | `autoload-AppState.patch` | Syncs the save on pause, which is how a session ends. |
 | `autoload-Config.patch` | New strings, English and Swahili. **The Swahili was written by an agent, not a speaker — check it before the Swahili build ships.** |
-| `ui-UiKit.patch` | Text fields, **and touch targets raised to the design.md 8.2 floor** — every button measured 27–40 CSS px on a phone against a 44/48 px minimum. |
+| `ui-UiKit.patch` | Text fields, **and touch targets raised to the design.md 8.2 floor** — every button measured 27–40 CSS px on a phone against a 44/48 px minimum. Now 168/154 design units, which clears the floor at the worst scale any mainstream phone produces. |
+| `export_presets.patch` | `store/*` excluded from the Android build, **and the whole Web preset** — threads off, custom shell, canvas policy None, PWA portrait. Every ⚑ line in it is one that silently ships a broken game if it is wrong. |
 | `ui-*.patch` | The Credits button, the account entry point. |
 | `scripts-Main.patch` | Routing: leaderboard, respawn shop, first-play tutorial gate. |
 
@@ -216,22 +230,60 @@ log, and on boot:
 Do this on the desktop first, then repeat the starred steps on the Pixel. Every
 line is a thing that has broken in this codebase or could.
 
-### 6a · Rendering — the one to do on three screen shapes
+### 6a · Rendering — mobile only, and identical on every phone
+
+**Dovefall is a phone game.** The shell checks the device before it downloads
+anything: a laptop gets a polite page with a copyable link and never fetches
+the engine at all. So this section is two things — proving the block works, and
+proving that among phones, screen size changes nothing that matters.
+
+**The guarantee, stated exactly.** `stretch/aspect="keep"` pins the viewport at
+1080 × 1920 on every device and letterboxes the remainder. A bigger phone buys
+a bigger *picture*, never a bigger *playfield*:
+
+```bash
+cd ../skills/dovefall/site && npm run screens
+```
+
+```
+  device                               css   scale          bars   sharp    touch
+  Pixel 9 Pro        Chrome        448x936   0.415     70 px t+b   1.18x     pass
+  iPhone 16          Safari        393x745   0.364     23 px t+b   1.09x     pass
+  iPhone 16          installed     393x852   0.364     77 px t+b   1.09x     pass
+  Galaxy S24         Chrome        360x700   0.333     30 px t+b   1.00x     pass
+  iPhone SE (3rd)    Safari        375x553   0.288   32 px sides   0.58x     pass
+
+  viewport            1080 x 1920
+  dove                336 x 210 px  (sprite pixel 21)
+  gate gap            840 px
+  placement band      408 px   <- the difficulty knob
+```
+
+The bottom four numbers are the game's own arithmetic, and **no row can change
+any of them.** Screen size cannot make Dovefall easier, and the leaderboard
+stays comparable. `npm test` in `site/` re-measures the top half in a real
+Chromium at each of those sizes.
 
 | # | Do | Expect |
 |---|---|---|
-| 1 | Launch, resize the window to a wide landscape shape | The game stays a **portrait column**, centred, with bars either side |
-| 2 | Watch the bars as you pass score 5, 15, 30 | Bars **change colour with the sky** at each chapter — they are not black |
-| 3 | Resize while a run is in progress | Gates do not jump. The course is unchanged |
-| 4 | ★ On the Pixel, check the top-left counters | Best and feather counters are **clear of the status bar and punch-hole** |
-| 5 | ★ On a tablet or a 4:3 window | Portrait column again, bars left and right |
-| 6 | ★ On the smallest phone you can find, tap every menu button | Nothing needs a second attempt. Buttons are 140 design units — 48+ CSS px even at 375 px wide |
+| 1 | ★ Open the game on the **Pixel 9 Pro** | Full-width sky, thin bars top and bottom, no horizontal scroll |
+| 2 | ★ Open it on an **iPhone 16** in Safari | The same. Scroll once so the toolbar collapses — the game **grows into the space**, it does not sit behind the bar |
+| 3 | ★ On the iPhone, use **Share ▸ Add to Home Screen**, then open it | Full screen, no browser chrome, and it **will not rotate** |
+| 4 | ★ Turn either phone sideways mid-run | "Turn your phone upright" appears **and the run pauses** — you do not lose the dove |
+| 5 | Open the same URL on a **laptop** | "Dovefall is a phone game", a copyable link, and — check the Network tab — **`index.js` is never requested** |
+| 6 | ★ Tap every menu control on the smallest phone you have | Nothing needs a second attempt |
+| 7 | Watch the bars as you pass score 5, 15, 30 | They **change colour with the sky** at each chapter — they are part of the world, not a frame |
+| 8 | ★ Open the browser console on the phone | One line per resize: `dovefall: viewport 448x936 css, dpr 2.857, framebuffer 1280x2674, scale 0.415` |
 
-**The determinism check.** Add a temporary print of the first three gate `top`
-values for seed `0xD0FE` in `normal`, then read it on desktop, on the Pixel, and
-in a resized browser window. **All three must be identical.** Before the
-`aspect="keep"` fix they were not — a 20:9 phone got 76% more placement range
-and a laptop got a negative one. Delete the print afterwards.
+**The determinism check — do this one.** Add a temporary print of the first
+three gate `top` values for seed `0xD0FE` in `normal`, then read it on the
+Pixel, on the iPhone, and on the desktop editor. **All three must be
+identical.** Before the `aspect="keep"` fix they were not: a 20:9 phone got 76%
+more placement range than a 16:9 one, and a laptop got a *negative* one. Delete
+the print afterwards.
+
+> Need to demo on a laptop? Append `?device=any` to the URL. It bypasses the
+> device check for that one visit and nothing else.
 
 ### 6b · The first-run tutorial
 
@@ -298,27 +350,56 @@ before there was a server.**
 
 ## 7 · Web export and the bundle
 
-In Godot: **Project ▸ Export ▸ Add ▸ Web**.
+`export_presets.patch` already added the **Web** preset, fully configured. In
+Godot: **Project ▸ Export**, select **Web**, and confirm these five before you
+press Export — an enum index that shifted between engine versions is a silent
+wrong setting, not an error.
 
-| Setting | Value | Why |
+| Setting | Must be | What goes wrong otherwise |
 |---|---|---|
-| Export Type / Threads | **OFF** | Single-threaded is the Godot 4.3+ default. Threads need `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` isolation, which **blocks embedding the game in any page carrying third-party frames** — H5 Games Ads, itch.io, a portal — and Dovefall spawns no threads. It is a fixed-step 2D game. Threads buy nothing and cost the ad surface. |
-| Export path | `web/index.html` | Anything else and the folder URL 404s. |
-| `exclude_filter` | `store/*` | 144 KB of Play listing artwork no player ever sees. |
+| **Threads** (`variant/thread_support`) | **off** | Threads need `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` isolation: every host must send two headers, and the page can no longer embed anything third-party — H5 Games Ads, itch.io, a portal. Dovefall is a fixed-step 2D game that spawns no threads, so this buys nothing and costs the ad surface. |
+| **Custom HTML Shell** | `res://web/shell.html` | The mobile-only check, the safe-area canvas sizing, the portrait prompt and the link previews all live in that file. A default export silently drops all four and still *looks* fine on your desktop. |
+| **Canvas Resize Policy** | **None** | Adaptive sizes the canvas from `window.innerWidth/innerHeight` — on iOS Safari that is the toolbar-*hidden* height, so the bottom of the game sits behind the address bar, and on Android it shrinks when the keyboard opens and squashes the whole game mid-name-entry. |
+| **PWA ▸ Ensure Cross-Origin Isolation Headers** | **off** | The generated service worker injects COOP/COEP and re-isolates the page — the threads problem arriving by a different route. |
+| **Export Path** | ends in **`index.html`** | Godot writes its sibling references relative to the page name, so any other name 404s the engine under `/dovefallgame/`. |
+
+PWA is on, Standalone, Portrait. That is what makes **Add to Home Screen** give
+an iPhone 16 the full 852 px of screen instead of 745, and lock the orientation
+in a way no web page can.
 
 ```bash
 cd ../skills/dovefall/site
 mkdir -p public/dovefallgame
-cp -r ../../../<godot-project>/web/* public/dovefallgame/
+cp -r ../../../<godot-project>/build/web/* public/dovefallgame/
 npm run verify
 ```
 
-**You should see** a file listing, an uncompressed and an over-the-wire size,
-and `Single-threaded export — no COOP/COEP headers needed anywhere.`
+**You should see:**
 
-The preflight **blocks the deploy** on: a threaded export, an entry file that
-is not `index.html`, an absolute path that would 404 under `/dovefallgame/`, or
-a missing engine. Each of those ships a page that loads and then does nothing.
+```
+  ok    Single-threaded export — no COOP/COEP headers needed anywhere.
+  ok    Link previews point at https://gachichio.org/dovefallgame/
+  ok    PWA: standalone, portrait, 3 icons.
+
+  Ready to deploy:  npx wrangler deploy
+```
+
+The preflight **blocks the deploy** on a threaded export, cross-origin
+isolation left on, the stock Godot shell, the wrong canvas policy, an entry
+file that is not `index.html`, an absolute path that would 404 under
+`/dovefallgame/`, a missing engine, or link previews pointing at a host you are
+not deploying to. Each of those ships a page that loads and then does nothing —
+or worse, one that works on your machine.
+
+To check the previews against the address you are actually deploying to:
+
+```bash
+node verify-export.mjs public/dovefallgame --origin https://gachichio.org/dovefallgame/
+```
+
+If they are wrong, fix `og:url` and `og:image` at the top of
+`godot/web/shell.html` and re-export. Crawlers do not run JavaScript, so a
+wrong value here means every share on WhatsApp is a blank grey card.
 
 **Write the over-the-wire number down.** It is the one input to the cost model
 that was estimated rather than measured, and everything about bandwidth follows
@@ -329,14 +410,14 @@ npm run deploy          # verify, then wrangler deploy
 ```
 
 **You should see** a `https://dovefall-site.<subdomain>.workers.dev` URL, with
-the game at **`/dovefallgame/`**. Close the CORS loop:
+the game at **`/dovefallgame/`**. Open it on your phone. Close the CORS loop:
 
 ```bash
 # worker/wrangler.toml → ALLOWED_ORIGINS, add the site URL
 cd ../worker && npx wrangler deploy
 ```
 
-**You should see** the game load in a browser, play, and a score appear in
+**You should see** the game load on a phone, play, and a score appear in
 `curl -s $API/v1/board/normal`. A CORS error in the console names the origin it
 wanted; put that exact string in `ALLOWED_ORIGINS`.
 
@@ -534,6 +615,9 @@ Stated plainly so nobody assumes otherwise later:
 - **It does not wire Google sign-in in the game.** The endpoints and the token
   verification are built and tested; the platform call that obtains an ID token
   is not. Guest play covers the whole loop.
+- **It does not let anyone play on a laptop.** That is deliberate, not a gap:
+  the control scheme is one thumb on a touchscreen. Desktop visitors get a
+  copyable link and no download. `?device=any` bypasses it for a demo.
 - **The Android build has no share sheet.** Godot has none built in. On web the
   real share sheet opens with the image; elsewhere the card is saved and the
   link copied. `ShareCard.gd` marks where the plugin call goes.

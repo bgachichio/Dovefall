@@ -5,6 +5,8 @@
   "type": "module",
   "description": "The Dovefall game bundle, served as Cloudflare Workers static assets.",
   "scripts": {
+    "test": "node --test --test-timeout=60000 \"test/*.test.mjs\"",
+    "screens": "node ../godot/tools/screen-report.mjs",
     "verify": "node verify-export.mjs public/dovefallgame",
     "deploy": "npm run verify && wrangler deploy",
     "preview": "wrangler dev"

@@ -17,10 +17,11 @@ Play: **https://gachichio.org/dovefallgame**
 |---|---|
 | `DEPLOY.md` | **Start here.** Deploy from a clean checkout, with a gameplay validation pass |
 | `worker/` | The API: Worker + D1, zero runtime dependencies. `npm test` runs 130 tests |
-| `site/` | The game bundle as Workers static assets — unmetered. `npm run verify` preflights the export |
+| `site/` | The game bundle as Workers static assets — unmetered. `npm run verify` preflights the export, `npm test` measures the page in a real browser |
 | `godot/patches/` | Changes to the game project, as applyable diffs |
 | `godot/autoload/`, `godot/ui/` | New files to copy into the Godot project |
-| `godot/tools/` | Golden-vector emitter, for a future replay validator |
+| `godot/web/` | `shell.html` — the page the game is served in: the mobile-only gate, canvas sizing, link previews |
+| `godot/tools/` | Golden-vector emitter, and `screen-report.mjs` — what each screen actually shows |
 | `f2p-infrastructure.md` | The costing and architecture analysis this came from |
 
 ## The load-bearing test
@@ -48,6 +49,13 @@ physics and nothing else here can be trusted. It is the first test for a reason.
   which blocks embedding the game anywhere carrying third-party frames, and
   this game spawns none. `site/verify-export.mjs` refuses to deploy a threaded
   build.
-- **Touch targets are 140 design units.** With the viewport scaled to fit,
-  one design unit is 0.35 CSS px on a small phone; the 96-unit buttons this
-  started with measured 33 CSS px against a 48 px floor.
+- **Touch targets are 168 design units** (154 for secondary). With the viewport
+  scaled to fit, one design unit is worth as little as 0.288 CSS px — an
+  iPhone SE in Safari, where the *height* is the limit — so the floor has to be
+  met at the worst scale, not the average one. The 96-unit buttons this started
+  with measured 28 CSS px against a 48 px floor. `npm run screens` in `site/`
+  prints the table.
+- **Phones and tablets only.** The control scheme is one thumb on a
+  touchscreen, so the shell checks the pointer before it downloads anything: a
+  laptop gets a copyable link and the engine is never fetched. `?device=any`
+  bypasses it for a demo.

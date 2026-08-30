@@ -26,23 +26,24 @@
  
  	ui = CanvasLayer.new()
  	ui.layer = 10
-@@ -75,15 +87,16 @@
+@@ -75,15 +87,17 @@
  	hud_bar.visible = false
  	var b := Button.new()
  	b.text = "\u23F8"
 -	b.custom_minimum_size = Vector2(112, 112)
-+	# 44 CSS px floor (design.md 8.2). 112 measured 39 CSS px on a phone.
-+	b.custom_minimum_size = Vector2(132, 132)
++	# 44 CSS px floor (design.md 8.2) at the worst mainstream scale, 0.288.
++	# 112 measured 32 CSS px there, and 39 on a Pixel.
++	b.custom_minimum_size = Vector2(154, 154)
  	b.add_theme_font_size_override("font_size", 46)
  	b.flat = true
  	b.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
  	b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 -	b.offset_left = -140
-+	b.offset_left = -160
++	b.offset_left = -182
  	b.offset_top = 30
  	b.offset_right = -28
 -	b.offset_bottom = 142
-+	b.offset_bottom = 162
++	b.offset_bottom = 184
  	b.pressed.connect(func(): AppState.pause_now())
  	hud_bar.add_child(b)
  	ui.add_child(hud_bar)

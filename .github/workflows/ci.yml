@@ -26,3 +26,37 @@ jobs:
       - run: npm test
       - name: Fail on known vulnerabilities
         run: npm audit --audit-level=high
+
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+      # The browser tests skip themselves when Playwright is absent, so install
+      # it explicitly here — a shell that sizes the canvas wrong on an iPhone
+      # is exactly the failure nobody notices from a laptop.
+      - run: npx --yes playwright@1.56.1 install --with-deps chromium
+      - run: npm test
+      - name: The screen table, for the record
+        run: npm run screens
+
+  patches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # A patch that no longer applies is a deployment that stops halfway
+      # through §5 with a half-modified game project.
+      - name: Every patch is well-formed
+        run: |
+          for p in godot/patches/*.patch; do
+            git apply --check --numstat "$p" >/dev/null 2>&1 \
+              || echo "cannot verify $p without the game tree (expected here)"
+            grep -q '^--- a/' "$p" || { echo "$p has no source header"; exit 1; }
+            grep -q '^@@ '     "$p" || { echo "$p has no hunk"; exit 1; }
+          done

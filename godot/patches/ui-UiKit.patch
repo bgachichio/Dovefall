@@ -1,6 +1,6 @@
 --- a/ui/UiKit.gd
 +++ b/ui/UiKit.gd
-@@ -6,7 +6,19 @@
+@@ -6,7 +6,24 @@
  ## cannot be broken by a hand-edited scene file with a wrong load_steps count.
  
  const PAD := 34
@@ -9,15 +9,20 @@
 +## Touch targets, in design units, sized against design.md 8.2: 44x44 minimum,
 +## 48x48 for primary actions — and that floor is in CSS pixels, not ours.
 +##
-+## With stretch/aspect="keep" the 1080x1920 viewport is scaled to fit, so on the
-+## smallest common phone (375 CSS px wide) one design unit is 0.347 CSS px. The
-+## old ROW of 96 therefore measured 33 CSS px: comfortably illegal, and it
-+## failed on every phone while passing on the tablet nobody tests with.
++## With stretch/aspect="keep" the 1080x1920 viewport is SCALED to fit the
++## window, so one design unit is worth `scale` CSS px and the floor has to be
++## met at the WORST scale any mainstream phone produces. Run
++## `node godot/tools/screen-report.mjs` for the table; the worst row is an
++## iPhone SE in Safari at 375x553, where the limit is the HEIGHT, not the
++## width, and scale falls to 0.288.
 +##
-+##   44 CSS px floor -> 127 design units
-+##   48 CSS px floor -> 139 design units
-+const ROW := 140          # primary actions and text fields
-+const ROW_SECONDARY := 128  # segmented choices
++##   44 CSS px floor / 0.288 -> 153 design units
++##   48 CSS px floor / 0.288 -> 167 design units
++##
++## The original ROW of 96 measured 28 CSS px there — and 33 on a Pixel. It
++## failed on every phone while passing on the tablet nobody tests with.
++const ROW := 168          # primary actions and text fields
++const ROW_SECONDARY := 154  # segmented choices
  
  
  static func screen(title_key: String) -> VBoxContainer:
