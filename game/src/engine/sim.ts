@@ -18,6 +18,7 @@ import {
   FIXED, TERMINAL_MULT, MODES, BANDS, RAMP, CHAPTERS,
   DOVE_W, DOVE_H, DOVE_DIVISOR, LANDMARK_GAP, PARTICLES,
   SW_MIN_SCORE, SW_MIN_SESSION_DEATHS, SW_CLEAR_AHEAD, SW_INVULN_S, SW_COUNTDOWN_S,
+  CROSSFADE_S, RESTART_MS,
 } from './constants.ts';
 import { Rng } from './rng.ts';
 
@@ -112,6 +113,13 @@ export interface SimOptions {
   tutorial?: boolean;
   atmos?: 0 | 1 | 2;
   assist?: number;
+  /**
+   * Deaths so far in this SESSION, not this run. Game.gd kept it on the Game
+   * node, which outlived a run, so the second wind was offered from your
+   * second death of the sitting onwards. A fresh Sim per run resets it to
+   * zero, and the offer would then almost never appear.
+   */
+  sessionDeaths?: number;
   now?: number;
 }
 
@@ -133,7 +141,7 @@ export function createSim(o: SimOptions): Sim {
     palFrom: 0, palTo: 0, palT: 1,
     respawnUsed: false,
     tutRespawns: o.tutorial ? 1 : 0,
-    swUsed: false, swOffer: false, sessionDeaths: 0,
+    swUsed: false, swOffer: false, sessionDeaths: o.sessionDeaths ?? 0,
     deathCause: 'gate',
     countdown: 0,
     assist: o.assist ?? 0,
@@ -236,25 +244,50 @@ function stepParticles(s: Sim, dt: number, spd: number): void {
 }
 
 // ------------------------------------------------------------------ input
-export function queueFlap(s: Sim, nowMs: number): void {
-  if (s.countdown > 0) return;
+/**
+ * Queue a flap. Returns true when one was actually taken, so the CALLER can
+ * fire the sound and the haptic on the input event.
+ *
+ * That is deliberate and it is load-bearing: Game.gd fired feedback in
+ * _queue_flap() rather than on the tick, because deferring it costs up to 8 ms
+ * of latency for nothing. Only the physics waits for the tick. Routing the flap
+ * through the per-tick event list looks tidier and is wrong — the list is
+ * cleared at the top of step(), so the sound is thrown away before anyone can
+ * play it.
+ */
+export function queueFlap(s: Sim, nowMs: number): boolean {
+  if (s.countdown > 0) return false;
   if (s.phase === 'ready') {
     s.phase = 'play';
     s.startedAt = nowMs;
   }
-  if (s.phase !== 'play') return;
+  if (s.phase !== 'play') return false;
   s.flapQueued = true;
-  s.events.push('flap');
+  return true;
+}
+
+/**
+ * Whether a tap is allowed to restart. Config.RESTART_MS after a death every
+ * input is ignored, because the tap that killed you is still in the air and
+ * nobody wants to lose the score they just saw.
+ */
+export function canRestart(s: Sim, nowMs: number): boolean {
+  return nowMs - s.diedAt >= RESTART_MS;
 }
 
 // ------------------------------------------------------------------ tick
 export function step(s: Sim, nowMs: number): void {
   const dt = FIXED;
   s.events.length = 0;
+
+  // The respawn countdown freezes the world. Godot paused the whole tree, so
+  // `t` stopped too — and `t` drives gate drift, so advancing it here would
+  // move the gates while the player watches a number count down.
+  if (s.countdown > 0) { s.countdown = Math.max(0, s.countdown - dt); return; }
+
   s.t += dt;
   s.sinceFlap += dt;
-  if (s.palT < 1) s.palT = Math.min(1, s.palT + dt / 3.0);
-  if (s.countdown > 0) { s.countdown = Math.max(0, s.countdown - dt); return; }
+  if (s.palT < 1) s.palT = Math.min(1, s.palT + dt / CROSSFADE_S);
 
   if (s.phase === 'ready') {
     s.y = VH * 0.42 + Math.sin(s.t * 3) * (VH * 0.012);

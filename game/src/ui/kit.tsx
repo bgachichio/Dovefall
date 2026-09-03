@@ -5,6 +5,7 @@
 import type { ReactNode } from 'react';
 import { STRINGS } from '../engine/constants.ts';
 import { load } from '../store.ts';
+import { play } from '../audio.ts';
 
 type Lang = keyof typeof STRINGS;
 
@@ -45,7 +46,7 @@ export function Button({ children, onClick, primary, disabled, small }: {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => { play('tap'); onClick?.(); }}
       disabled={disabled}
       className={[
         'w-full rounded-2xl px-6 font-medium transition-colors',
@@ -89,7 +90,7 @@ export function Choice<T extends string | number>({ label, options, value, onCha
           <button
             key={String(o.value)}
             type="button"
-            onClick={() => onChange(o.value)}
+            onClick={() => { play('tap'); onChange(o.value); }}
             style={{ minHeight: 44 }}
             className={[
               'flex-1 rounded-xl px-2 text-sm transition-colors',

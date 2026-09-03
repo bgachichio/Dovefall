@@ -9,9 +9,15 @@ import { VW, VH, step, queueFlap, type Sim } from './sim.ts';
 /** Above 3x the extra pixels cost battery and buy nothing: the design canvas is
  *  1080 wide, and 3x on a 360 CSS px phone is already 1080. */
 const DPR_CAP = 3;
-/** Never take more than a quarter second of catch-up in one frame. Returning
- *  from a locked screen must not deliver two thousand physics steps. */
-const MAX_CATCHUP = 0.25;
+/**
+ * Spiral-of-death guard, matched to the Godot project's
+ * `physics/common/max_physics_steps_per_frame = 12`. Returning from a locked
+ * screen must not deliver a thousand physics steps at once, and it must not
+ * deliver more than the Android build would have: twelve ticks is a tenth of a
+ * second of world, and anything older than that is simply dropped.
+ */
+export const MAX_STEPS_PER_FRAME = 12;
+const MAX_CATCHUP = MAX_STEPS_PER_FRAME * FIXED;
 
 export interface LoopHandle {
   stop(): void;
@@ -88,7 +94,7 @@ export function startLoop(o: LoopOptions): LoopHandle {
     if (dt > MAX_CATCHUP) dt = MAX_CATCHUP;
     acc += dt;
     let steps = 0;
-    while (acc >= FIXED && steps < 32) {
+    while (acc >= FIXED && steps < MAX_STEPS_PER_FRAME) {
       step(sim, now);
       if (sim.events.length && o.onEvents) o.onEvents(sim.events.slice(), sim);
       acc -= FIXED;
@@ -122,12 +128,16 @@ export function startLoop(o: LoopOptions): LoopHandle {
 
 /** Wire taps and the space bar to a flap. Pointer events, because they fire
  *  before the 300 ms click and cover mouse, pen and finger in one path. */
-export function attachInput(el: HTMLElement, sim: () => Sim | null): () => void {
+export function attachInput(
+  el: HTMLElement,
+  sim: () => Sim | null,
+  onFlap?: () => void,
+): () => void {
   const tap = (e: Event) => {
     const s = sim();
     if (!s) return;
     e.preventDefault();
-    queueFlap(s, performance.now());
+    if (queueFlap(s, performance.now())) onFlap?.();
   };
   const key = (e: KeyboardEvent) => {
     if (e.code !== 'Space' && e.code !== 'ArrowUp' && e.code !== 'Enter') return;

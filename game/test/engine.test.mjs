@@ -8,10 +8,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Rng, GODOT_CHECKSUM, dailySeed, seedCode } from '../src/engine/rng.ts';
 import {
-  createSim, step, queueFlap, spawn, replayBlob, continueRun,
+  createSim, step, queueFlap, spawn, replayBlob, continueRun, canRestart, die,
   VW, VH, doveW, doveH, curGap, gateW, bandFor, rampFor, chapterIndex,
 } from '../src/engine/sim.ts';
-import { FIXED, TERMINAL_MULT, MODES } from '../src/engine/constants.ts';
+import { MAX_STEPS_PER_FRAME } from '../src/engine/loop.ts';
+import { gatePitch } from '../src/audio.ts';
+import {
+  FIXED, TERMINAL_MULT, MODES, CROSSFADE_S, RESTART_MS, SW_COUNTDOWN_S, SW_MIN_SCORE,
+} from '../src/engine/constants.ts';
 
 // ------------------------------------------------------------------ the anchor
 test('the RNG still reproduces the Godot checksum', () => {
@@ -193,4 +197,106 @@ test('atmosphere never touches the seeded stream', () => {
   const full = createSim({ seed: 0xd0fe, atmos: 2 }).gates.map((g) => g.top);
   const none = createSim({ seed: 0xd0fe, atmos: 0 }).gates.map((g) => g.top);
   assert.deepEqual(none, full);
+});
+
+// ------------------------------------------------- parity with the Godot build
+//
+// These exist because the port lost each of them once. Every case below is a
+// line of scripts/Game.gd or project.godot that the web build has to honour or
+// the game stops feeling like the game.
+
+test('a flap reports itself, so feedback can fire on the input event', () => {
+  // Game.gd fired the sound and the buzz in _queue_flap(), not on the tick,
+  // with a comment about the 8 ms it saves. The port routed it through the
+  // per-tick event list, which step() clears before anyone reads it — so the
+  // flap was silent. queueFlap now returns whether it took one.
+  const s = createSim({ seed: 0xd0fe });
+  assert.equal(queueFlap(s, 0), true, 'the first tap starts the run and flaps');
+  assert.equal(s.phase, 'play');
+  assert.equal(queueFlap(s, 0), true, 'and so does the next');
+
+  s.phase = 'dead';
+  assert.equal(queueFlap(s, 0), false, 'a dead dove does not flap');
+
+  s.phase = 'play';
+  s.countdown = 2;
+  assert.equal(queueFlap(s, 0), false, 'nor does one waiting on a countdown');
+});
+
+test('the respawn countdown freezes the world, t included', () => {
+  // Godot paused the whole tree during the countdown. `t` drives gate drift,
+  // so letting it advance would move the gates while the player watches a
+  // number count down — the one moment they are promised nothing changes.
+  const s = createSim({ seed: 0xd0fe });
+  queueFlap(s, 0);
+  for (let i = 0; i < 400; i++) step(s, i * 8);
+  continueRun(s);
+
+  const before = { t: s.t, x: s.gates.map((g) => g.x), y: s.y };
+  for (let i = 0; i < 60; i++) step(s, i);
+  assert.equal(s.t, before.t, 't does not advance');
+  assert.deepEqual(s.gates.map((g) => g.x), before.x, 'nothing moves');
+  assert.equal(s.y, before.y, 'and the dove holds');
+  assert.ok(s.countdown < SW_COUNTDOWN_S, 'but the countdown is running');
+});
+
+test('input is ignored for RESTART_MS after a death', () => {
+  const s = createSim({ seed: 0xd0fe });
+  s.diedAt = 1000;
+  assert.equal(canRestart(s, 1000), false, 'the tap that killed you does not restart');
+  assert.equal(canRestart(s, 1000 + RESTART_MS - 1), false);
+  assert.equal(canRestart(s, 1000 + RESTART_MS), true);
+});
+
+test('the chapter cross-fade takes CROSSFADE_S, not a hard-coded number', () => {
+  const s = createSim({ seed: 0xd0fe });
+  s.palT = 0;
+  queueFlap(s, 0);
+  const ticks = Math.round(CROSSFADE_S / FIXED);
+  for (let i = 0; i < ticks - 2; i++) step(s, i * 8);
+  assert.ok(s.palT < 1, `still fading after ${ticks - 2} ticks`);
+  step(s, 0);
+  step(s, 0);
+  step(s, 0);
+  assert.equal(s.palT, 1, 'and complete at CROSSFADE_S');
+});
+
+test('catch-up is capped at the Godot project\'s twelve steps per frame', () => {
+  // project.godot: physics/common/max_physics_steps_per_frame = 12. Returning
+  // from a locked screen must not deliver a thousand ticks of world at once,
+  // and must not deliver more than the Android build would have.
+  assert.equal(MAX_STEPS_PER_FRAME, 12);
+});
+
+test('the gate tone climbs a semitone every five points', () => {
+  // Game.gd: Sfx.play("gate", pow(1.0595, floori(score / 5))). Most of why a
+  // long run feels like it is going somewhere.
+  assert.equal(gatePitch(0), 1);
+  assert.equal(gatePitch(4), 1);
+  assert.ok(Math.abs(gatePitch(5) - 1.0595) < 1e-9);
+  assert.ok(gatePitch(50) > gatePitch(25));
+});
+
+test('deaths carry across runs, or the second wind is never offered', () => {
+  // Game.gd kept session_deaths on the Game node, which outlived a run. A
+  // fresh Sim per run reset it to zero, and SW_MIN_SESSION_DEATHS could then
+  // never be met from a first death — so the offer effectively vanished.
+  const first = createSim({ seed: 1 });
+  first.phase = 'play';
+  first.score = SW_MIN_SCORE;
+  die(first, 0);
+  assert.equal(first.sessionDeaths, 1);
+  assert.equal(first.swOffer, false, 'not on the first death of a sitting');
+
+  const second = createSim({ seed: 2, sessionDeaths: first.sessionDeaths });
+  second.phase = 'play';
+  second.score = SW_MIN_SCORE;
+  die(second, 0);
+  assert.equal(second.swOffer, true, 'offered on the second');
+
+  const lowScore = createSim({ seed: 3, sessionDeaths: 5 });
+  lowScore.phase = 'play';
+  lowScore.score = SW_MIN_SCORE - 1;
+  die(lowScore, 0);
+  assert.equal(lowScore.swOffer, false, 'and never below the score floor');
 });

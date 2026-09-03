@@ -245,6 +245,21 @@ if geometry ever leaks into the simulation, that test goes red.
 | 6 | ★ Tap every menu control on the smallest phone you have | Nothing needs a second attempt |
 | 7 | Pass score 5, 15, 30 | The sky, the gates and the letterbox bars **change together** at each chapter |
 
+### 7a-ii · Feel — the five that drifted once
+
+These are the parity fixes from `game/PARITY.md`. Each one was wrong at some
+point in the port and is cheap to re-break.
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | ★ Tap to flap, with the sound on | The blip is **simultaneous with the thumb**, not a frame late |
+| 2 | Pass gates 5, 10, 15 | The gate tone **climbs a semitone every five** |
+| 3 | Beat your own best mid-run | A three-note chime at the moment you pass it, not on the death panel |
+| 4 | ★ Lock the phone for a minute mid-run, unlock | The world resumes; it does **not** lurch forward |
+| 5 | Take a respawn and watch the countdown | Nothing moves. Not even a drifting gate |
+| 6 | Die while tapping fast | The panel ignores you for a third of a second — you do not skip your own score |
+| 7 | Die twice in a sitting with a score over 8 | The second wind is offered on the second death, not never |
+
 ### 7b · The first run
 
 | # | Do | Expect |

@@ -6,7 +6,10 @@
 // values that have actually changed.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createSim, secondWind, continueRun, replayBlob, VH, type ModeId, type Sim } from './engine/sim.ts';
+import {
+  canRestart, continueRun, createSim, replayBlob, secondWind, VH,
+  type ModeId, type Sim,
+} from './engine/sim.ts';
 import { dailySeed, randomSeed, seedCode, todayKey } from './engine/rng.ts';
 import { attachInput, startLoop, type LoopHandle } from './engine/loop.ts';
 import { VERSION } from './engine/constants.ts';
@@ -15,7 +18,7 @@ import { bestFor, load, recordRun, save, setSetting } from './store.ts';
 import { Hud, CountdownOverlay } from './ui/Hud.tsx';
 import { DeathPanel } from './ui/Death.tsx';
 import { Account, Credits, Leaderboard, NameScreen, Pause, Respawns, Settings, Title, Wardrobe } from './ui/Screens.tsx';
-import { play as playSound, setMuted } from './audio.ts';
+import { buzz, gatePitch, play as playSound, setMuted } from './audio.ts';
 
 type Route = 'title' | 'name' | 'run' | 'board' | 'settings' | 'credits' | 'wardrobe' | 'account' | 'respawns';
 
@@ -39,9 +42,18 @@ export default function App() {
   const [isPb, setIsPb] = useState(false);
   const [lastStreak, setLastStreak] = useState<{ current: number; alive: boolean; outcome?: string } | null>(null);
   const [top10, setTop10] = useState(false);
+  // Config.RESTART_MS. For a third of a second after a death nothing on the
+  // panel responds: the tap that killed you is still in the air, and nobody
+  // wants to lose the score they have not finished reading.
+  const [armed, setArmed] = useState(false);
 
   const mode = stored.settings.mode as ModeId;
   const best = bestFor(mode);
+  // Read inside the loop's callbacks, which are created once.
+  const bestRef = useRef(best);
+  bestRef.current = best;
+  /** Deaths this sitting, carried across runs — see SimOptions.sessionDeaths. */
+  const sessionDeathsRef = useRef(0);
 
   // A handle on the live sim, for automated play. Localhost only — the same
   // rule as the API override, and for the same reason: on a real host this
@@ -90,7 +102,24 @@ export default function App() {
       getSim: () => simRef.current,
       getSkin: () => load().settings.skin,
       paused: () => pausedRef.current,
-      onEvents: (events) => events.forEach(playSound),
+      onEvents: (events, s) => {
+        for (const e of events) {
+          if (e === 'gate') {
+            playSound('gate', gatePitch(s.score));
+            buzz(8);
+            // Game.gd rings the personal-best chime the moment you pass it,
+            // not on the death panel. That is the moment it means something.
+            if (s.score === bestRef.current + 1 && bestRef.current > 0) playSound('pb');
+          } else if (e === 'death') {
+            playSound('death');
+            buzz(20);
+          } else if (e === 'continue') {
+            playSound('pb');
+          } else {
+            playSound(e);
+          }
+        }
+      },
       onFrame: (s) => {
         setPhase((p) => (p === s.phase ? p : s.phase));
         setScore((n) => (n === s.score ? n : s.score));
@@ -101,7 +130,14 @@ export default function App() {
     const ro = new ResizeObserver(() => handle.resize());
     ro.observe(frame);
     window.addEventListener('resize', handle.resize);
-    const detach = attachInput(canvas, () => (pausedRef.current ? null : simRef.current));
+    // The flap's sound and buzz fire HERE, on the input event, exactly as
+    // Game.gd did — deferring them to the tick adds up to 8 ms of latency for
+    // nothing, and in a one-touch game that is the whole feel.
+    const detach = attachInput(
+      canvas,
+      () => (pausedRef.current ? null : simRef.current),
+      () => { playSound('flap'); buzz(12); },
+    );
     return () => {
       detach();
       ro.disconnect();
@@ -121,6 +157,16 @@ export default function App() {
     };
   });
 
+  useEffect(() => {
+    if (phase !== 'dead') { setArmed(false); return; }
+    const s = simRef.current;
+    if (!s) return;
+    const wait = Math.max(0, 320 - (performance.now() - s.diedAt));
+    if (canRestart(s, performance.now())) { setArmed(true); return; }
+    const id = setTimeout(() => setArmed(true), wait);
+    return () => clearTimeout(id);
+  }, [phase]);
+
   const doPause = useCallback(() => {
     if (simRef.current?.phase !== 'play') return;
     pausedRef.current = true;
@@ -137,6 +183,7 @@ export default function App() {
       daily: opts.daily,
       tutorial: opts.tutorial,
       atmos: s.settings.atmos,
+      sessionDeaths: sessionDeathsRef.current,
     });
     setIsPb(false);
     setLastStreak(null);
@@ -154,6 +201,7 @@ export default function App() {
     if (!s || phase !== 'dead' || submitted.current === s.diedAt) return;
     submitted.current = s.diedAt;
 
+    sessionDeathsRef.current = s.sessionDeaths;
     const pb = recordRun(s.mode, s.score, s.feathers);
     setIsPb(pb);
     if (s.tutorial) { save({ tutorialDone: true }); return; }
@@ -243,6 +291,7 @@ export default function App() {
             streak={lastStreak}
             respawns={respawns}
             tutorial={sim.tutorial}
+            armed={armed}
             name={stored.name}
             tag={stored.tag}
             onRetry={() => startRun({ daily: sim.daily })}

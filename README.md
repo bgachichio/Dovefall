@@ -21,6 +21,7 @@ any browser. A tap, a click or the space bar; there is only ever one input.
 |---|---|
 | `DEPLOY.md` | **Start here.** Clean checkout to live, with a gameplay validation pass |
 | `game/` | The game: engine, renderer, React shell. `npm test` runs the engine tests; `test/play.test.mjs` plays it in a real browser |
+| `game/PARITY.md` | Does the web build still play like the Android build? Line by line, with the five things that had drifted |
 | `worker/` | The API: Worker + D1, zero runtime dependencies. `npm test` runs 130 tests |
 | `site/` | The Worker that serves the bundle. `npm run verify` preflights a deploy |
 | `godot/` | The original Android project as patches, and the source of every tuned constant |

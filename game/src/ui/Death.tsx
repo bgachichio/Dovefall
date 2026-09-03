@@ -8,13 +8,15 @@ import { pad5 } from './Hud.tsx';
 import { shareScore } from './share.ts';
 import type { Sim } from '../engine/sim.ts';
 
-export function DeathPanel({ sim, best, isPb, streak, respawns, tutorial, onRetry, onHome, onRespawn, onBuy, name, tag }: {
+export function DeathPanel({ sim, best, isPb, streak, respawns, tutorial, armed, onRetry, onHome, onRespawn, onBuy, name, tag }: {
   sim: Sim;
   best: number;
   isPb: boolean;
   streak: { current: number; alive: boolean; outcome?: string } | null;
   respawns: number;
   tutorial: boolean;
+  /** False for Config.RESTART_MS after the death — see App. */
+  armed: boolean;
   onRetry: () => void;
   onHome: () => void;
   onRespawn: () => void;
@@ -56,21 +58,23 @@ export function DeathPanel({ sim, best, isPb, streak, respawns, tutorial, onRetr
               <button
                 type="button"
                 onClick={onRespawn}
+                disabled={!armed}
                 style={{ minHeight: 56 }}
-                className="w-full animate-pulse rounded-2xl bg-gold px-6 text-base font-semibold text-ink"
+                className="w-full animate-pulse rounded-2xl bg-gold px-6 text-base font-semibold
+                           text-ink disabled:opacity-60"
               >
                 ♥ {tutorial ? 'Keep flying — free' : `${t('respawns')} · ${respawns}`}
               </button>
             )}
             {!canRespawn && !tutorial && (
-              <Button onClick={onBuy}>♥ {t('getrespawns')}</Button>
+              <Button onClick={onBuy} disabled={!armed}>♥ {t('getrespawns')}</Button>
             )}
 
-            <Button primary onClick={onRetry}>Fly again</Button>
+            <Button primary onClick={onRetry} disabled={!armed}>Fly again</Button>
 
             <div className="flex gap-2.5">
-              <Button onClick={share}>{t('sharebest')}</Button>
-              <Button onClick={onHome}>{t('back')}</Button>
+              <Button onClick={share} disabled={!armed}>{t('sharebest')}</Button>
+              <Button onClick={onHome} disabled={!armed}>{t('back')}</Button>
             </div>
             {shared && <div className="text-center text-xs text-dim">{shared}</div>}
           </div>
