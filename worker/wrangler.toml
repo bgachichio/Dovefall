@@ -24,9 +24,15 @@ enabled = true
 crons = ["0 * * * *"]
 
 [vars]
-# Origins allowed to call this API from a browser. The Android build sends no
-# Origin header and is unaffected. Never "*" — this API carries a bearer token.
-ALLOWED_ORIGINS = "https://dovefall.pages.dev"
+# Origins allowed to call this API from a browser, comma separated, matched
+# exactly. The Android build sends no Origin header and is unaffected. Never
+# "*" — this API carries a bearer token.
+#
+# gachichio.org is where the game ends up. Until the DNS move it is served
+# from workers.dev, and THAT origin has to be added here or the very first
+# play fails CORS — the console names the origin it wanted, and it goes in
+# this list verbatim. DEPLOY.md section 6b.
+ALLOWED_ORIGINS = "https://gachichio.org,https://dovefall-site.REPLACE-ME.workers.dev"
 
 # The hosted Paystack payment page. Public by nature — the secret key is a
 # wrangler secret, never a var.
