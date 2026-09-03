@@ -15,6 +15,13 @@ import { t } from './kit.tsx';
 
 export const pad5 = (n: number) => String(Math.max(0, n)).padStart(5, '0');
 
+/** Whether the primary pointer is a finger. Used for wording only — the game
+ *  itself takes a tap, a click and the space bar without caring which. */
+export const touchFirst = (): boolean =>
+  typeof matchMedia === 'function'
+  && matchMedia('(pointer: coarse)').matches
+  && matchMedia('(hover: none)').matches;
+
 export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }: {
   sim: Sim | null;
   /** Pushed in from App rather than read off the sim: the sim mutates between
@@ -102,7 +109,7 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
       {sim?.phase === 'ready' && (
         <div className="absolute inset-x-0 bottom-[18%] text-center">
           <div className="font-display text-lg font-bold tracking-widest drop-shadow-[0_2px_0_rgba(0,0,0,.6)]">
-            TAP TO FLAP
+            {touchFirst() ? 'TAP TO FLAP' : 'CLICK TO FLAP'}
           </div>
           <div className="mt-1 text-xs text-paper/60">or press space</div>
         </div>

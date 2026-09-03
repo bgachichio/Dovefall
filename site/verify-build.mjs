@@ -44,29 +44,30 @@ const js = files.filter((f) => f.endsWith('.js') && !f.endsWith('.map'));
 if (!js.length) fail.push('No JavaScript — the build produced nothing to run.');
 const src = has('index.html') ? read('index.html') : '';
 
-// ------------------------------------------------------- 2. the device gate
+// ------------------------------------------------------------- 2. the entry
 //
-// THE ONE THAT MATTERS. vite.config.ts lifts the entry out of its <script>
-// tag so the bundle is fetched only after the page has decided this is a
-// phone. If a plugin change puts the tag back, a desktop visitor silently
-// starts downloading a game they will then be told they cannot play.
+// The bundle used to be held back behind a device check; Dovefall now plays on
+// anything with a pointer, so the entry is an ordinary module script again and
+// the only thing worth asserting is that it exists and resolves. A build that
+// emits index.html with no entry loads a blank page and reports no error.
 if (src) {
-  if (/<script[^>]+type="module"[^>]+src=/.test(src)) {
-    fail.push('index.html loads the bundle with a plain <script src>. The device\n' +
-      '    gate is bypassed and every desktop visitor downloads the game.');
+  const tags = [...src.matchAll(/<script[^>]+type="module"[^>]*src="([^"]+)"/g)].map((m) => m[1]);
+  if (!tags.length) {
+    fail.push('index.html loads no module script — the page would render nothing.');
   }
-  if (!/__DOVEFALL_ENTRY/.test(src)) {
-    fail.push('No __DOVEFALL_ENTRY in index.html — the gate has nothing to load,\n' +
-      '    so the game will never start on a phone either.');
+  for (const t of tags) {
+    const rel = t.replace(/^\.?\//, '');
+    if (!has(rel)) fail.push(`index.html loads ${t}, which is not in the bundle.`);
   }
-  if (!/dovefall is a phone game/i.test(src)) {
-    fail.push('The mobile-only panel is missing from index.html.');
+  if (tags.length) note.push(`Entry: ${tags.join(', ')}`);
+
+  // The rotate prompt is the one remaining interception, and it is phone-only.
+  if (!/id="rotate"/.test(src)) {
+    warn.push('No portrait prompt — a phone held sideways gets an unplayable strip.');
   }
-  const entry = /__DOVEFALL_ENTRY\s*=\s*"([^"]+)"/.exec(src);
-  if (entry) {
-    const rel = entry[1].replace(/^\.?\//, '');
-    if (!has(rel)) fail.push(`The entry points at ${entry[1]}, which is not in the bundle.`);
-    else note.push(`Entry is gated behind the device check: ${entry[1]}`);
+  if (/dovefall is a phone game/i.test(src)) {
+    fail.push('The old mobile-only gate is still in index.html. It blocks every\n' +
+      '    desktop visitor, and the game now supports them.');
   }
 }
 

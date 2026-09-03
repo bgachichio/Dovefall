@@ -15,7 +15,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Dovefall" />
-  <meta name="description" content="One touch. Storm, deep and sky. A free phone game." />
+  <meta name="description" content="One touch. Storm, deep and sky. Free to play, in any browser." />
 
   <!-- Link previews. Crawlers do not run JavaScript, so these are absolute and
        fixed at build time. site/verify-export.mjs checks them against the host
@@ -45,27 +45,21 @@
       height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
     }
 
-    /* Shown instead of the game on anything that is not a handheld, and on a
-       phone held sideways. Both are dead ends by design. */
-    #gate, #rotate {
+    /* A phone held sideways. The only dead end left: below 480 px of height a
+       landscape window cannot hold a legal 44 px touch target, and shrinking
+       the controls to fit would be worse than asking for the phone back. A
+       DESKTOP window that happens to be short is left alone — a mouse does not
+       need a 44 px target, and "turn your phone upright" would be nonsense. */
+    #rotate {
       position: fixed; inset: 0; z-index: 20; display: none;
       flex-direction: column; align-items: center; justify-content: center;
       gap: 16px; padding: 0 32px; text-align: center;
       background: #0D1420; color: #EEF4FF;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
-    body.not-handheld #gate, body.cramped #rotate { display: flex; }
-    body.not-handheld #root, body.cramped #root { visibility: hidden; }
-    #gate h1, #rotate p { margin: 0; font-size: 22px; font-weight: 600; }
-    #gate p { margin: 0; max-width: 30rem; font-size: 15px; line-height: 1.6; color: rgba(238,244,255,.7); }
-    #gate .url {
-      font-family: ui-monospace, Menlo, monospace; font-size: 15px; word-break: break-all;
-      background: rgba(0,0,0,.25); border-radius: 10px; padding: 14px 16px; user-select: text;
-    }
-    #gate button {
-      font: inherit; font-size: 15px; color: #fff; background: #B0642A;
-      border: 0; border-radius: 10px; padding: 13px 26px; min-height: 48px; cursor: pointer;
-    }
+    body.cramped #rotate { display: flex; }
+    body.cramped #root { visibility: hidden; }
+    #rotate p { margin: 0; font-size: 22px; font-weight: 600; }
     #rotate .glyph {
       width: 44px; height: 72px; border: 3px solid #EEF4FF; border-radius: 8px;
       transform: rotate(90deg); animation: turn 2.4s ease-in-out infinite;
@@ -80,14 +74,6 @@
 
   <div id="root"></div>
 
-  <div id="gate">
-    <h1>Dovefall is a phone game</h1>
-    <p>It is built for one thumb on a touchscreen, so it only runs on a phone or
-       tablet. Open this link there and it will start straight away.</p>
-    <div class="url" id="gate-url"></div>
-    <button type="button" id="gate-copy">Copy link</button>
-  </div>
-
   <div id="rotate">
     <div class="glyph"></div>
     <p>Turn your phone upright</p>
@@ -95,51 +81,28 @@
   </div>
 
   <script>
-    // Runs before the bundle. A desktop visitor never downloads the game.
+    // Dovefall plays on anything with a pointer: a finger, a mouse, or the
+    // space bar. The one case still worth intercepting is a PHONE held
+    // sideways, where the playfield would be pillarboxed down to a strip and
+    // every control would fall under the 44 px touch floor.
     //
-    // The test is "is the primary pointer a finger", not "does the user-agent
-    // string say Android": a phone with Request-Desktop-Site on still passes,
-    // and a laptop with a touchscreen and a mouse attached still fails.
+    // A desktop window that is merely short is not that case — it gets the
+    // game, pillarboxed, which is exactly what a portrait game looks like on a
+    // landscape screen.
     (function () {
       function mq(q) { return typeof matchMedia === 'function' && matchMedia(q).matches; }
-      var nav = navigator;
-      var touch = nav.maxTouchPoints || 0;
-      var handheld =
-        /[?&]device=any\b/.test(location.search) ||
-        (nav.userAgentData && nav.userAgentData.mobile === true) ||
-        (/^Mac/.test(nav.platform || '') && touch > 1) ||
-        (mq('(pointer: coarse)') && mq('(hover: none)') && touch > 0);
+      var touchFirst = mq('(pointer: coarse)') && mq('(hover: none)')
+        && (navigator.maxTouchPoints || 0) > 0;
 
-      if (!handheld) {
-        document.body.classList.add('not-handheld');
-        var url = location.href.split('#')[0].split('?')[0];
-        document.getElementById('gate-url').textContent = url;
-        document.getElementById('gate-copy').addEventListener('click', function () {
-          var b = this;
-          if (nav.clipboard) nav.clipboard.writeText(url).then(function () { b.textContent = 'Copied'; });
-        });
-        return;
-      }
-
-      // Below 480 px of height a landscape window cannot hold a legal 44 px
-      // touch target, so ask for the phone back rather than shrink the game.
       var t = null;
       function check() {
-        var w = innerWidth, h = innerHeight;
-        var cramped = h < 480 && w > h;
+        var cramped = touchFirst && innerHeight < 480 && innerWidth > innerHeight;
         document.body.classList.toggle('cramped', cramped);
         if (cramped) dispatchEvent(new Event('blur'));   // pauses the run
       }
       addEventListener('resize', function () { clearTimeout(t); t = setTimeout(check, 60); });
       addEventListener('orientationchange', check);
       check();
-
-      // vite.config.ts lifts the entry out of its <script> tag and leaves the
-      // URL here, so nothing is fetched until the check above has passed.
-      var s = document.createElement('script');
-      s.type = 'module';
-      s.src = window.__DOVEFALL_ENTRY || '/src/main.tsx';
-      document.body.appendChild(s);
     }());
   </script>
 </body>

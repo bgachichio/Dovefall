@@ -50,7 +50,10 @@ export function Button({ children, onClick, primary, disabled, small }: {
       className={[
         'w-full rounded-2xl px-6 font-medium transition-colors',
         small ? 'min-h-11 text-sm' : 'min-h-13 text-base',
-        primary ? 'bg-copper text-white active:bg-copper/80' : 'bg-slot-2 text-paper active:bg-slot',
+        primary
+          ? 'bg-copper text-white hover:bg-copper/90 active:bg-copper/80'
+          : 'bg-slot-2 text-paper hover:bg-slot-2/80 active:bg-slot',
+        'cursor-pointer',
         disabled ? 'opacity-40' : '',
       ].join(' ')}
       style={{ minHeight: small ? 44 : 52 }}
@@ -90,7 +93,10 @@ export function Choice<T extends string | number>({ label, options, value, onCha
             style={{ minHeight: 44 }}
             className={[
               'flex-1 rounded-xl px-2 text-sm transition-colors',
-              o.value === value ? 'bg-copper text-white' : 'bg-slot text-paper active:bg-slot-2',
+              'cursor-pointer',
+              o.value === value
+                ? 'bg-copper text-white'
+                : 'bg-slot text-paper hover:bg-slot-2/70 active:bg-slot-2',
             ].join(' ')}
           >
             {o.label}

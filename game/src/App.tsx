@@ -21,6 +21,8 @@ type Route = 'title' | 'name' | 'run' | 'board' | 'settings' | 'credits' | 'ward
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const simRef = useRef<Sim | null>(null);
   const loopRef = useRef<LoopHandle | null>(null);
   const pausedRef = useRef(false);
@@ -78,9 +80,13 @@ export default function App() {
   // ------------------------------------------------------------- the loop
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const frame = frameRef.current;
+    const stage = stageRef.current;
+    if (!canvas || !frame || !stage) return;
     const handle = startLoop({
       canvas,
+      frame,
+      stage,
       getSim: () => simRef.current,
       getSkin: () => load().settings.skin,
       paused: () => pausedRef.current,
@@ -93,7 +99,7 @@ export default function App() {
     });
     loopRef.current = handle;
     const ro = new ResizeObserver(() => handle.resize());
-    if (canvas.parentElement) ro.observe(canvas.parentElement);
+    ro.observe(frame);
     window.addEventListener('resize', handle.resize);
     const detach = attachInput(canvas, () => (pausedRef.current ? null : simRef.current));
     return () => {
@@ -200,21 +206,35 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-ink">
-      <div className="absolute inset-0" style={{ visibility: showGame ? 'visible' : 'hidden' }}>
-        <canvas ref={canvasRef} />
-        {sim && (
-          <Hud
-            sim={sim}
-            score={score}
-            best={best}
-            streak={streaks.play}
-            top10={top10}
-            muted={muted}
-            onMute={() => { const m = !muted; setMutedState(m); setMuted(m); setSetting('sfx', !m); }}
-            onPause={doPause}
-          />
-        )}
-        {countdown > 0 && <CountdownOverlay seconds={countdown} />}
+      {/* The frame is the whole visible area and paints the surround in the
+          chapter's sky; the stage is exactly the fitted playfield. The HUD
+          lives inside the stage so it stays with the game on a wide screen
+          rather than spreading to the window edges. */}
+      <div
+        ref={frameRef}
+        className="absolute inset-0 flex items-center justify-center overflow-hidden"
+        style={{ visibility: showGame ? 'visible' : 'hidden' }}
+      >
+        <div ref={stageRef} className="relative">
+          <canvas ref={canvasRef} />
+          {sim && (
+            <Hud
+              sim={sim}
+              score={score}
+              best={best}
+              streak={streaks.play}
+              top10={top10}
+              muted={muted}
+              onMute={() => { const m = !muted; setMutedState(m); setMuted(m); setSetting('sfx', !m); }}
+              onPause={doPause}
+            />
+          )}
+          {countdown > 0 && <CountdownOverlay seconds={countdown} />}
+        </div>
+
+        {/* These dim the whole frame, letterbox included — a bright bar above
+            a death panel reads as a bug. Their content is max-width-centred,
+            so they look the same on a phone and on a laptop. */}
         {sim && phase === 'dead' && !paused && (
           <DeathPanel
             sim={sim}
@@ -239,7 +259,6 @@ export default function App() {
           />
         )}
       </div>
-
       {route === 'name' && (
         <NameScreen onDone={() => { save({ tutorialDone: false }); startRun({ tutorial: true }); }} />
       )}

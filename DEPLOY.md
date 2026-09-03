@@ -2,13 +2,13 @@
 
 ## 1 · What this is
 
-Dovefall is a one-touch arcade game that runs in a phone browser. Three
-deployables, all on Cloudflare's free plan; the only thing outside it is the
-domain, `gachichio.org`, which you already own.
+Dovefall is a one-touch arcade game that runs in a browser — phone, tablet or
+desktop. Three deployables, all on Cloudflare's free plan; the only thing
+outside it is the domain, `gachichio.org`, which you already own.
 
 | | What | Where | If it stops |
 |---|---|---|---|
-| `game/` | The game itself — canvas + React, **110 KB over the wire** | built to `game/dist/` | nothing to play |
+| `game/` | The game itself — canvas + React, **110 KB over the wire**, any browser | built to `game/dist/` | nothing to play |
 | `site/` | A Worker that serves that bundle as static assets | `gachichio.org/dovefallgame/` | nothing to play |
 | `worker/` | The API — accounts, scores, saves, payments | `dovefall-api.<sub>.workers.dev` | the game still plays; no board, no new scores |
 | D1 `dovefall` | The database | already created | the API returns errors; local saves are untouched |
@@ -101,8 +101,8 @@ node --test --test-timeout=120000 "test/play.test.mjs"
 
 # 4 · play it yourself
 npm run dev
-#   then open the printed URL — on your phone, on the same wifi, or with
-#   ?device=any on the laptop.
+#   then open the printed URL — on your phone over the same wifi, or straight
+#   on the laptop. Both play.
 ```
 
 **You should see**, in the browser console on the phone, one line per resize:
@@ -240,7 +240,8 @@ if geometry ever leaks into the simulation, that test goes red.
 | 2 | ★ On an iPhone 16 in Safari, scroll once so the toolbar collapses | The game **grows into the space**; it never sits behind the bar |
 | 3 | ★ Share ▸ Add to Home Screen, then open it | Full screen, no browser chrome, and it will not rotate |
 | 4 | ★ Turn the phone sideways mid-run | "Turn your phone upright", **and the run pauses** |
-| 5 | Open the same URL on a laptop | "Dovefall is a phone game" — and in the Network tab, the bundle is **never requested** |
+| 5 | Open the same URL on a laptop | It **plays**: a centred portrait column, sky either side, "CLICK TO FLAP". Mouse and space bar both flap |
+| 5b | Make the laptop window short and wide (900 × 420) | Still plays, still pillarboxed. **No** "turn your phone" prompt — that is for phones |
 | 6 | ★ Tap every menu control on the smallest phone you have | Nothing needs a second attempt |
 | 7 | Pass score 5, 15, 30 | The sky, the gates and the letterbox bars **change together** at each chapter |
 
@@ -307,10 +308,11 @@ _Last tested: run it before you need it._
 
 ## 9 · Troubleshooting
 
-**The game shows "Dovefall is a phone game" on my phone.**
-The device check wants a coarse primary pointer with no hover. A desktop-mode
-browser on a tablet can report otherwise. Append `?device=any` to confirm, then
-tell me which browser — the check is five lines in `game/index.html`.
+**A phone in landscape says "Turn your phone upright" and will not play.**
+Deliberate. Below 480 px of height every control falls under the 44 px touch
+floor, and shrinking them to fit would be worse than asking. The threshold is
+one line in `game/index.html`, and it only applies to touch-first devices — a
+short desktop window is never intercepted.
 
 **A CORS error in the console.**
 The error names the origin it wanted. Put that exact string into
@@ -342,8 +344,9 @@ webhook with a 401. Fix the secret and use Paystack's "resend" button.
   possible for its duration, which catches crude attacks and nothing subtle.
   The replay log is captured and stored from day one, so historical runs become
   checkable the day a validator lands.
-- **It does not let anyone play on a laptop.** Deliberate: the control scheme is
-  one thumb on a touchscreen. `?device=any` bypasses it for a demo.
+- **It has no landscape layout.** The world is portrait, so on a wide screen it
+  is a centred column with sky either side. That is the design, not a fallback —
+  but it does mean a laptop shows a lot of sky.
 - **It does not wire Google sign-in.** The endpoints and the token verification
   are built and tested; the button is not. Guest play covers the whole loop.
 - **The Swahili strings were written by an agent, not a speaker.** Have someone

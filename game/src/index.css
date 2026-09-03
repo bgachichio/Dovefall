@@ -35,8 +35,10 @@ html, body, #root {
   font-size: calc(1rem * var(--font-scale));
 }
 
-/* The playfield never scrolls and never selects. Menus may scroll. */
-canvas { display: block; touch-action: none; }
+/* The playfield never scrolls and never selects. Menus may scroll.
+   The cursor is a pointer because on a desktop the whole canvas IS the
+   button — there is nothing else to click. */
+canvas { display: block; touch-action: none; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

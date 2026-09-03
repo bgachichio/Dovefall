@@ -22,6 +22,12 @@ export interface LoopHandle {
 
 export interface LoopOptions {
   canvas: HTMLCanvasElement;
+  /** The box the playfield is fitted into — the whole visible area. */
+  frame: HTMLElement;
+  /** Sized by the loop to exactly the fitted playfield, and centred in the
+   *  frame. The HUD lives inside it, so it lines up with the game on a wide
+   *  screen instead of spreading to the window edges. */
+  stage: HTMLElement;
   /** Called every frame with the live sim, for HUD state. */
   onFrame?: (s: Sim) => void;
   /** Called once per tick with the events the sim raised — sound, haptics. */
@@ -41,20 +47,29 @@ export function startLoop(o: LoopOptions): LoopHandle {
   let cssH = 1;
   let scale = 1;
   let dpr = 1;
+  let lastSky = '';
 
   function resize(): void {
-    const box = canvas.parentElement ?? canvas;
-    const w = box.clientWidth;
-    const h = box.clientHeight;
-    if (w < 1 || h < 1) return;
+    const availW = o.frame.clientWidth;
+    const availH = o.frame.clientHeight;
+    if (availW < 1 || availH < 1) return;
+
     dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
-    cssW = w;
-    cssH = h;
-    scale = Math.min(w / VW, h / VH);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    const bw = Math.max(1, Math.round(w * dpr));
-    const bh = Math.max(1, Math.round(h * dpr));
+    scale = Math.min(availW / VW, availH / VH);
+
+    // The canvas is exactly the fitted playfield, not the whole window. On a
+    // phone that is the full width; on a laptop it is a centred portrait
+    // column, and the surround is painted by the frame in the chapter's sky.
+    // Sizing it this way is also what keeps the HUD attached to the game.
+    cssW = Math.round(VW * scale);
+    cssH = Math.round(VH * scale);
+    o.stage.style.width = `${cssW}px`;
+    o.stage.style.height = `${cssH}px`;
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+
+    const bw = Math.max(1, Math.round(cssW * dpr));
+    const bh = Math.max(1, Math.round(cssH * dpr));
     if (canvas.width !== bw || canvas.height !== bh) {
       canvas.width = bw;
       canvas.height = bh;
@@ -80,21 +95,17 @@ export function startLoop(o: LoopOptions): LoopHandle {
       steps++;
     }
 
-    // Letterbox in the sky colour of the chapter in force, so the bars read as
-    // part of the world rather than as a frame around it.
+    // The surround takes the sky colour of the chapter in force, so the bars
+    // read as part of the world rather than as a frame around it — and they
+    // follow the palette through the chapter cross-fades.
     const look = lookOf(sim);
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = look.sky;
-    g.fillRect(0, 0, cssW, cssH);
+    if (look.sky !== lastSky) {
+      lastSky = look.sky;
+      o.frame.style.backgroundColor = look.sky;
+    }
 
-    g.save();
-    g.translate((cssW - VW * scale) / 2, (cssH - VH * scale) / 2);
-    g.scale(scale, scale);
-    g.beginPath();
-    g.rect(0, 0, VW, VH);
-    g.clip();
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
     draw(g, sim, o.getSkin());
-    g.restore();
 
     o.onFrame?.(sim);
   }

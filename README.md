@@ -2,13 +2,14 @@
 
 **One touch. Storm, deep and sky.**
 
-A free-to-play arcade game for phones. Canvas and about a thousand lines of
+A free-to-play arcade game. Canvas and about a thousand lines of
 TypeScript on the client, Cloudflare Workers + D1 on the server, everything
 inside the free plan. Accounts without email addresses, a leaderboard that can
 be trusted, streaks that forgive one bad day, and paid respawns that can never
 buy rank.
 
-Play: **https://gachichio.org/dovefallgame** · phones and tablets only.
+Play: **https://gachichio.org/dovefallgame** — phone, tablet or desktop, in
+any browser. A tap, a click or the space bar; there is only ever one input.
 
 **110 KB over the wire.** No engine, no download, no app store.
 
@@ -61,8 +62,11 @@ finds until a player says it feels wrong. Regenerate with `npm run port`.
   day, so a run that does not beat the player's best costs nothing.
 - **Money never buys rank.** A continued run earns feathers and a local best,
   never a leaderboard place.
-- **Phones and tablets only.** The device check runs before the bundle is
-  fetched, so a laptop visitor downloads nothing. `?device=any` for a demo.
+- **Portrait everywhere, and one input.** A tap, a click and the space bar are
+  the same event. On a landscape screen the playfield is a centred column and
+  the surround takes the chapter's sky. The only interception left is a *phone*
+  held sideways, where every control would fall under the 44 px touch floor —
+  a merely short desktop window is left alone.
 - **The menus are DOM, not canvas.** A 48 px touch target is 48 CSS px on every
   phone, with no viewport scaling in between — the single biggest thing the web
   build gets for free.

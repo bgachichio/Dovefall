@@ -247,25 +247,97 @@ describe('Dovefall in a browser', {
     await ctx.close();
   });
 
-  test('a desktop visitor gets a link and downloads no game', async () => {
-    const requested = [];
+  test('a desktop visitor plays the game, with a mouse and with the keyboard', async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
+    await ctx.addInitScript(() => {
+      localStorage.setItem('dovefall.v1', JSON.stringify({
+        rev: 1, installId: '22222222-2222-2222-2222-222222222222',
+        bests: {}, feathers: 0, owned: ['dove'], tutorialDone: true,
+        name: 'Kifaru', tag: '4T7X', token: '', respawns: 0,
+      }));
+    });
     const page = await ctx.newPage();
-    page.on('request', (r) => requested.push(new URL(r.url()).pathname));
-    await page.goto(base, { waitUntil: 'networkidle' });
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?api=${encodeURIComponent(base.replace(/\/$/, ''))}`, { waitUntil: 'networkidle' });
 
-    await page.waitForSelector('text=Dovefall is a phone game');
-    await shot(page, '14-desktop');
-    assert.ok(!requested.some((p) => /\/assets\/index-.*\.js$/.test(p)), 'the bundle was never fetched');
+    // No gate, no override in the URL: straight to the title.
+    await page.waitForSelector('text=DOVEFALL');
+    await page.click('button:has-text("Play")');
+    await page.waitForSelector('text=CLICK TO FLAP');
+    await shot(page, '14-desktop-ready');
+
+    // A portrait game on a landscape screen is a centred column with the sky
+    // either side. The playfield is the same 1080x1920 it is on a phone.
+    const box = await page.evaluate(() => {
+      const c = document.querySelector('canvas');
+      return { w: parseFloat(c.style.width), h: parseFloat(c.style.height) };
+    });
+    const scale = Math.min(box.w / 1080, box.h / 1920);
+    assert.ok(scale > 0.3, `scale ${scale}`);
+    assert.equal(Math.round(box.h / scale), 1920, 'the world is still 1920 tall');
+
+    // The mouse flaps. Count the recorded flaps rather than racing the
+    // physics: at 120 Hz gravity cancels a flap in under 200 ms, and a
+    // round-trip to the browser is not reliably faster than that.
+    await page.mouse.click(640, 400);
+    await page.waitForFunction(() => window.__dovefall.sim()?.phase === 'play');
+    await page.waitForFunction(() => window.__dovefall.sim().flapTicks.length >= 1);
+    const afterClick = await page.evaluate(() => window.__dovefall.sim().flapTicks.length);
+    assert.ok(afterClick >= 1, 'the click reached the engine');
+
+    // So does the space bar.
+    await page.keyboard.press('Space');
+    await page.waitForFunction(
+      (n) => window.__dovefall.sim().flapTicks.length > n,
+      afterClick,
+      { timeout: 3000 },
+    );
+
+    // And it can actually be played to a score with the keyboard alone.
+    let scored = 0;
+    for (let i = 0; i < 900; i++) {
+      const st = await page.evaluate(() => {
+        const s = window.__dovefall.sim();
+        if (!s || s.phase !== 'play') return null;
+        const next = s.gates.find((g) => !g.passed);
+        return { score: s.score, y: s.y, vy: s.vy, target: next ? next.top + next.gap * 0.5 : 806 };
+      });
+      if (!st) break;
+      scored = st.score;
+      if (scored >= 6) break;
+      if (st.y > st.target && st.vy > -80) await page.keyboard.press('Space');
+      await page.waitForTimeout(16);
+    }
+    assert.ok(scored >= 4, `keyboard play scored ${scored}`);
+    await shot(page, '15-desktop-playing');
+
+    assert.deepEqual(errors, [], 'no console errors on desktop');
     await ctx.close();
   });
 
-  test('sideways, the phone is asked for back', async () => {
+  test('sideways, the PHONE is asked for back — a short desktop window is not', async () => {
     const { ctx, page } = await phone();
     await page.setViewportSize({ width: 745, height: 393 });
     await page.waitForSelector('text=Turn your phone upright');
-    await shot(page, '15-rotate');
+    await shot(page, '16-rotate');
     await ctx.close();
+
+    // The same shape on a desktop is just a short window, and must be left
+    // alone: a mouse does not need a 44 px touch target, and the reader has no
+    // phone to turn.
+    const desk = await browser.newContext({
+      viewport: { width: 900, height: 420 }, isMobile: false, hasTouch: false,
+    });
+    const dp = await desk.newPage();
+    await dp.goto(base, { waitUntil: 'networkidle' });
+    await dp.waitForSelector('#root h1, #root button');
+    assert.equal(
+      await dp.evaluate(() => document.body.classList.contains('cramped')),
+      false,
+      'a short desktop window is not asked to rotate',
+    );
+    await desk.close();
   });
 
   test('every phone gets the same playfield, at its own resolution', async () => {
