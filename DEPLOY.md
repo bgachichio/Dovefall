@@ -25,21 +25,41 @@ reversible in under a minute.
 
 ## 2 · Prerequisites
 
-| | Version | Install |
-|---|---|---|
-| Node | 22 LTS or newer | `nvm install 22` |
-| npm | ships with Node | — |
-| Wrangler | 4.x, per-project | already in `devDependencies` |
-| A Cloudflare account | free plan | already yours |
-| Chromium | for the browser tests only | `npx playwright install --with-deps chromium` |
+**Node 22 or newer. This is a hard floor, not a preference.**
+
+| | Why it will not work below 22 |
+|---|---|
+| `worker` tests | They run the real Worker against a real SQLite copy of the real schema. That is `node:sqlite`, which does not exist before Node 22 — on Node 20 seven test files die with `ERR_UNKNOWN_BUILTIN_MODULE` |
+| `wrangler` 4.128 | Refuses to start: *"Wrangler requires at least Node.js v22.0.0"*. No login, no deploy |
+| `node --test` globs | Node 20 does not expand a test pattern itself |
+
+Every package declares `engines: node >=22.20.0` with `engine-strict=true`, so
+`npm install` **fails immediately** on an older Node rather than warning and
+installing anyway. If you see `EBADENGINE`, that is this working — upgrade and
+run it again.
 
 ```bash
-node --version        # expect v22.x or newer
-npx wrangler --version
+# If you do not have nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+exec $SHELL
+
+nvm install 22
+nvm use 22
+nvm alias default 22
+
+node --version        # must print v22.20.0 or newer
 ```
 
-**Never build on the VM.** `npm run build` on a 1 GB box will be killed without
-a clear message. Build on the Lenovo and ship `dist/`.
+| | Version | Notes |
+|---|---|---|
+| Node | **22.20+** | `nvm install 22` |
+| npm | ships with Node | — |
+| Wrangler | 4.128, per-project | already in `devDependencies` |
+| Playwright | 1.56.1, per-project | already in `devDependencies`; the browsers are a separate download, see §4 |
+| A Cloudflare account | free plan | already yours |
+
+**Never build on the VM.** `npm run build` on a 1 GB box gets killed without a
+clear message. Build on the Lenovo and ship `dist/`.
 
 ---
 
@@ -88,15 +108,21 @@ cd Dovefall
 cd worker && npm install && npm test
 #   expect: # pass 130   # fail 0
 
-# 2 · the engine — determinism, fairness, the difficulty tables
-cd ../game && npm install && npm test
-#   expect: # pass 15    # fail 0
+# 2 · the game — engine tests, then the browser suite
+cd ../game && npm install
 
-# 3 · the game, in a browser
+# The browsers are a ~180 MB download, separate from the library, and only
+# needed once. Run it from game/ so it uses the project's own playwright and
+# the versions match — `npx playwright install` from anywhere else fetches
+# browsers for whatever version npx happens to resolve.
+npx playwright install chromium
+
 npm run build
-npx playwright install --with-deps chromium     # once
-node --test --test-timeout=120000 "test/play.test.mjs"
-#   expect: # pass 7     # fail 0, and screenshots in game/shots/
+npm test
+#   expect: # pass 29    # fail 0    # skipped 0
+#
+#   22 engine tests plus 7 in a real Chromium. If it says 7 were SKIPPED, the
+#   browsers are missing — the skip reason names the command to fix it.
 
 # 4 · play it yourself
 npm run dev

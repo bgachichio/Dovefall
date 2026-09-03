@@ -46,9 +46,12 @@ jobs:
       # The engine tests first: they are fast and they hold the checksum.
       - run: npm test
       - run: npm run build
-      # Then the real thing, in a real browser, at six phone sizes.
+      # Through the project's own playwright, so the browser build matches the
+      # library. `npx playwright install` resolves whatever version npx feels
+      # like and downloads browsers the tests then cannot launch.
       - run: npx playwright install --with-deps chromium
-      - run: node --test --test-timeout=120000 "test/play.test.mjs"
+      # One command now covers both suites — 22 engine, 7 browser.
+      - run: npm test
       - uses: actions/upload-artifact@v4
         if: always()
         with:

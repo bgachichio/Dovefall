@@ -22,6 +22,14 @@ const TYPES = {
   '.png': 'image/png', '.map': 'application/json',
 };
 
+/**
+ * Playwright is a devDependency, so `npm install` brings the library. The
+ * BROWSERS are a separate ~180 MB download and are not — so check for the
+ * executable too, and say which of the two is missing. An earlier version
+ * checked only the library and then died inside a before-hook with a raw
+ * "Executable doesn't exist", which reads like a broken test rather than a
+ * missing step.
+ */
 async function loadPlaywright() {
   for (const p of ['playwright', '/opt/node22/lib/node_modules/playwright/index.js']) {
     try {
@@ -31,6 +39,18 @@ async function loadPlaywright() {
     } catch { /* next */ }
   }
   return null;
+}
+
+function browserReason(lib) {
+  if (!lib) return 'playwright is missing — run `npm install`';
+  try {
+    if (!existsSync(lib.chromium.executablePath())) {
+      return 'browsers not downloaded — run `npx playwright install chromium` from game/';
+    }
+  } catch {
+    return 'browsers not downloaded — run `npx playwright install chromium` from game/';
+  }
+  return false;
 }
 
 // A stand-in for the Worker: the same shapes, none of the logic. What is being
@@ -101,7 +121,7 @@ const pw = await loadPlaywright();
 const LAUNCH = { args: ['--no-sandbox', '--disable-dev-shm-usage'] };
 
 describe('Dovefall in a browser', {
-  skip: !pw ? 'playwright not installed' : !existsSync(DIST) ? 'run `npm run build` first' : false,
+  skip: browserReason(pw) || (!existsSync(DIST) ? 'run `npm run build` first' : false),
 }, () => {
   let browser; let server; let base;
   const shot = async (page, name) => {
