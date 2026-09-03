@@ -38,6 +38,11 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+      # This is the package a player downloads, so it gets the same gate the
+      # server does. It did not, until a vite advisory went unnoticed here
+      # while the worker job was failing on wrangler's.
+      - name: Fail on known vulnerabilities
+        run: npm audit --audit-level=high
       # The engine tests first: they are fast and they hold the checksum.
       - run: npm test
       - run: npm run build
@@ -62,6 +67,8 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+      - name: Fail on known vulnerabilities
+        run: npm audit --audit-level=high
       # A deploy that would bypass the mobile-only gate must fail here, not
       # after it is live.
       - name: Build the game and preflight the bundle

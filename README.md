@@ -8,7 +8,7 @@ inside the free plan. Accounts without email addresses, a leaderboard that can
 be trusted, streaks that forgive one bad day, and paid respawns that can never
 buy rank.
 
-Source: **github.com/bgachichio/dovefall** · Play: **https://gachichio.org/dovefallgame** — phone, tablet or desktop, in
+Source: **github.com/bgachichio/Dovefall** · Play: **https://gachichio.org/dovefallgame** — phone, tablet or desktop, in
 any browser. A tap, a click or the space bar; there is only ever one input.
 
 **110 KB over the wire.** No engine, no download, no app store.
