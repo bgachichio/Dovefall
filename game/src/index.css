@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+/* Dovefall's palette, straight from Config.gd. One source, two runtimes. */
+@theme {
+  --color-ink: #0D1420;
+  --color-navy: #1F3864;
+  --color-copper: #B0642A;
+  --color-gold: #F0C07A;
+  --color-paper: #EEF4FF;
+  --color-slot: #1B2536;
+  --color-slot-2: #243247;
+  --color-dim: #9EB3D1;
+  --font-display: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+/* The menus are DOM, not canvas, so the design.md 8.2 touch floor is literal:
+   48 CSS px is 48 CSS px on every phone, with no viewport scaling in between.
+   That is the single biggest thing the web build gets for free. */
+:root {
+  --row: 52px;
+  --font-scale: 1;
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: calc(1rem * var(--font-scale));
+}
+
+/* The playfield never scrolls and never selects. Menus may scroll. */
+canvas { display: block; touch-action: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -27,8 +27,32 @@ jobs:
       - name: Fail on known vulnerabilities
         run: npm audit --audit-level=high
 
+  game:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+      # The engine tests first: they are fast and they hold the checksum.
+      - run: npm test
+      - run: npm run build
+      # Then the real thing, in a real browser, at six phone sizes.
+      - run: npx playwright install --with-deps chromium
+      - run: node --test --test-timeout=120000 "test/play.test.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: game/shots/
+
   site:
     runs-on: ubuntu-latest
+    needs: game
     defaults:
       run:
         working-directory: site
@@ -38,13 +62,13 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
-      # The browser tests skip themselves when Playwright is absent, so install
-      # it explicitly here — a shell that sizes the canvas wrong on an iPhone
-      # is exactly the failure nobody notices from a laptop.
-      - run: npx --yes playwright@1.56.1 install --with-deps chromium
-      - run: npm test
-      - name: The screen table, for the record
-        run: npm run screens
+      # A deploy that would bypass the mobile-only gate must fail here, not
+      # after it is live.
+      - name: Build the game and preflight the bundle
+        run: |
+          (cd ../game && npm install --no-audit --no-fund && npm run build)
+          npm run sync
+          node verify-build.mjs public/dovefallgame
 
   patches:
     runs-on: ubuntu-latest

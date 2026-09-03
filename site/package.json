@@ -3,12 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "The Dovefall game bundle, served as Cloudflare Workers static assets.",
+  "description": "The Dovefall bundle, served as Cloudflare Workers static assets.",
   "scripts": {
-    "test": "node --test --test-timeout=60000 \"test/*.test.mjs\"",
-    "screens": "node ../godot/tools/screen-report.mjs",
-    "verify": "node verify-export.mjs public/dovefallgame",
-    "deploy": "npm run verify && wrangler deploy",
+    "sync": "rm -rf public/dovefallgame && mkdir -p public/dovefallgame && cp -r ../game/dist/. public/dovefallgame/",
+    "verify": "node verify-build.mjs public/dovefallgame",
+    "deploy": "npm run sync && npm run verify && wrangler deploy",
     "preview": "wrangler dev"
   },
   "devDependencies": {
