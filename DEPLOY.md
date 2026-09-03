@@ -81,9 +81,8 @@ npx wrangler secret list     # expect the names, never the values
 ## 4 · First run — clean checkout to playing locally
 
 ```bash
-git clone -b claude/dovefall-f2p-infrastructure-ky0zx0 \
-  https://github.com/bgachichio/skills.git dovefall-src
-cd dovefall-src/dovefall
+git clone https://github.com/bgachichio/dovefall.git
+cd dovefall
 
 # 1 · the API, against a real SQLite copy of the real schema
 cd worker && npm install && npm test
