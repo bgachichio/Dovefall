@@ -72,10 +72,14 @@ public repository, it does not belong there.
 ```bash
 cd worker
 
-# 32 random bytes. Rotating this signs every player out — which is also your
-# panic button if a session token is ever leaked.
-openssl rand -base64 32
-npx wrangler secret put SESSION_SECRET
+# 32 random bytes, generated and consumed in one command so the value is never
+# printed, never in your scrollback, never in shell history. Rotating it signs
+# every player out — which is also your panic button if a token ever leaks.
+#
+# Do NOT run `openssl rand` on its own and copy the output. A secret that has
+# been displayed has been exposed, and the only safe response is to generate
+# another one.
+openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET
 
 # Your Paystack SECRET key (sk_test_… first, sk_live_… when you go live). It
 # signs every webhook; without it the payments endpoint trusts nothing.
