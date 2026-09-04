@@ -368,6 +368,19 @@ that it fired is the system working.
 Only ranked runs appear. A run that used a respawn is deliberately excluded,
 and so is a tutorial run.
 
+**`git pull` aborts: "local changes to game/package-lock.json would be overwritten".**
+`npm install` rewrites lock files — especially across npm major versions — so a
+pull after an install finds the file dirty and refuses. The lock file is
+generated, so discarding it is safe:
+
+```bash
+git restore game/package-lock.json   # or worker/, or site/
+git pull
+```
+
+If it happens on more than one, `git restore '*/package-lock.json'`. Pull
+first, install second, and it does not arise.
+
 **`npm run build` is killed.**
 You are on the VM. Build on the Lenovo and ship `dist/`.
 
