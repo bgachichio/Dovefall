@@ -388,6 +388,17 @@ first, install second, and it does not arise.
 **`npm run build` is killed.**
 You are on the VM. Build on the Lenovo and ship `dist/`.
 
+**`d1 migrations apply` says "No migrations present".**
+`migrations_dir = "schema"` is missing from the `[[d1_databases]]` block in
+`worker/wrangler.toml`. Wrangler defaults to a folder called `migrations/`;
+ours is `schema/`, because the test harness reads the same files. Pull the
+latest — a test now asserts the config and the directory agree.
+
+**The API is deployed but every request touching data fails.**
+Almost certainly the migrations never ran. `npx wrangler d1 list` — if
+`num_tables` reads 0, the database is empty. Apply them and nothing needs
+redeploying; the Worker code is unchanged.
+
 **A payment did not credit.**
 Check the Paystack dashboard for a delivered webhook. The endpoint verifies an
 HMAC-SHA512 signature, so a wrong `PAYSTACK_SECRET` shows as a delivered

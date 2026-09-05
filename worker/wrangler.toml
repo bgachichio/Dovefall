@@ -46,3 +46,10 @@ RESPAWN_MIN_SUBUNITS = "5000"
 binding = "DB"
 database_name = "dovefall"
 database_id = "b0aa203a-2e22-466c-b0b2-a9013956608f"
+
+# Wrangler looks for a folder called `migrations/` unless told otherwise, and
+# ours is called `schema/` — which the test harness also reads, so renaming it
+# would be the larger change. Without this line
+# `wrangler d1 migrations apply` reports "No migrations present" and exits 1,
+# and the database stays empty behind a Worker that deployed perfectly well.
+migrations_dir = "schema"
