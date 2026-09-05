@@ -181,9 +181,19 @@ npx wrangler deploy
 ```bash
 API=https://dovefall-api.<sub>.workers.dev
 curl -s $API/v1/health | head -c 400
+
+# Prove the schema is really there. Do NOT use `wrangler d1 list` for this —
+# its num_tables column reports 0 against a database with the full schema and
+# a working API in front of it, so it cannot tell success from failure.
+npx wrangler d1 execute dovefall --remote \
+  --command "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table';"
 ```
 
-Expect `"ok": true`, eight tables, and a `budget` block reading well under 80%.
+Expect `"ok": true` and a `budget` block well under 80%, then a table count of
+**at least 9** — the eight the game uses plus `d1_migrations`.
+
+> The API's root path answers `{"error":"not_found"}`. That is correct: there
+> is no route at `/`, only under `/v1/`. Use `/v1/health` to check it is up.
 
 ### 6b · The game
 
@@ -395,9 +405,39 @@ ours is `schema/`, because the test harness reads the same files. Pull the
 latest — a test now asserts the config and the directory agree.
 
 **The API is deployed but every request touching data fails.**
-Almost certainly the migrations never ran. `npx wrangler d1 list` — if
-`num_tables` reads 0, the database is empty. Apply them and nothing needs
-redeploying; the Worker code is unchanged.
+Almost certainly the migrations never ran. Count the tables with the query in
+§6a — not `wrangler d1 list`, whose `num_tables` reads 0 either way. Applying
+them needs no redeploy; the Worker code is unchanged.
+
+**`d1 migrations apply` fails with `duplicate column name`.**
+The ledger and the database disagree: the schema is already there, but
+`d1_migrations` does not know it. This happens when the SQL was ever applied
+outside wrangler. `0001_init.sql` is all `CREATE TABLE IF NOT EXISTS`, so it
+succeeds trivially against a populated database and gets recorded as applied;
+`0002` then does a bare `ALTER TABLE ... ADD COLUMN`, which SQLite cannot make
+conditional, and hard-fails on a column that is already present.
+
+Check what is at stake before touching anything:
+
+```bash
+npx wrangler d1 execute dovefall --remote --command \
+  "SELECT (SELECT COUNT(*) FROM players) players, (SELECT COUNT(*) FROM bests) bests, (SELECT COUNT(*) FROM payments) payments;"
+```
+
+**All zero** — reset. It is the only route that leaves the schema verified
+against the files rather than assumed. Children before parents, or the foreign
+keys refuse:
+
+```bash
+npx wrangler d1 execute dovefall --remote --command \
+  "DROP TABLE IF EXISTS d1_migrations; DROP TABLE IF EXISTS ops; DROP TABLE IF EXISTS payments; DROP TABLE IF EXISTS rejects; DROP TABLE IF EXISTS saves; DROP TABLE IF EXISTS daily; DROP TABLE IF EXISTS bests; DROP TABLE IF EXISTS devices; DROP TABLE IF EXISTS players;"
+
+npx wrangler d1 migrations apply dovefall --remote
+```
+
+**Not zero** — stop and take a backup (§11) first. The alternative is
+hand-inserting the missing rows into `d1_migrations`, which leaves you trusting
+that the schema matches the files instead of knowing it.
 
 **A payment did not credit.**
 Check the Paystack dashboard for a delivered webhook. The endpoint verifies an
