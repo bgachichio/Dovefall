@@ -18,7 +18,8 @@ source of the tuned constants — `game/tools/port-constants.mjs` transforms the
 into TypeScript — and it remains the Android build path, but the web game is
 its own thing and nothing on the web waits for Godot.
 
-**The riskiest step is §6c**, the DNS move. Everything before it is additive and
+**The riskiest step is §6c**, the DNS move — and the risk is your Zoho email
+and an enabled DNSSEC, not the website. Everything before it is additive and
 reversible in under a minute.
 
 ---
@@ -214,36 +215,98 @@ pointing at a host you are not deploying to.
 **At this point the game is live and shareable on a `workers.dev` URL.** Open
 it on your phone. Everything below is the address bar.
 
-### 6c · The address — `gachichio.org/dovefallgame/`
+### 6c · The address — moving gachichio.org onto Cloudflare
 
-This is the only step that touches DNS for a domain already serving traffic.
-Do it when you have a calm hour.
+This is the only step that touches a domain already carrying live traffic,
+and — measured on 2026-09-09 — that traffic is not only a website.
 
-1. Add `gachichio.org` to Cloudflare (Websites → Add a site → Free).
-2. Copy the two nameservers Cloudflare gives you into Porkbun.
-3. Wait for the zone to go **Active** (minutes to a few hours).
-4. In Cloudflare DNS, confirm the root `A` record still points at the VM, and
-   set it to **Proxied** (orange cloud). This is what lets a Worker route fire
-   on a path.
-5. Uncomment option **A** in `site/wrangler.toml` and redeploy:
+**What gachichio.org actually is today**
 
-```bash
-npx wrangler deploy
-curl -sI https://gachichio.org/dovefallgame/ | head -3
+```
+NS      fortaleza / maceio / salvador / curitiba .ns.porkbun.com
+A       gachichio.org       34.35.177.164      (Google Cloud — the VM)
+A       www.gachichio.org   34.35.177.164
+MX      mx.zoho.com (10), mx2.zoho.com (20), mx3.zoho.com (50)
+TXT     v=spf1 include:zohomail.com ~all
+TXT     zoho-verification=zb86633368.zmverify.zoho.com
+TXT     google-site-verification=CdYarAMYSqT4MyfdwqDewew9iHKTQ-uWdIUPwChWlJE
+CAA     none
+DS      present at .org  →  DNSSEC IS ENABLED
+SOA     hostmaster is dns.cloudflare.com
 ```
 
-6. Add the new origin to the API's allow-list and redeploy it:
+Two of those lines are the whole risk, and neither is the website.
+
+**Your email is on this domain.** Three Zoho MX records and an SPF record.
+Lose them in the move and mail stops — silently, from the sender's point of
+view, for as long as it takes anyone to notice.
+
+**DNSSEC is on.** Porkbun has published a DS record at `.org` that says "my
+answers for this zone are signed, and here is the key". Point the nameservers
+at Cloudflare while that DS still stands and every validating resolver on the
+internet — which is most of them — will refuse Cloudflare's unsigned answers
+outright. Not a degraded site: `SERVFAIL`, for the website AND the mail, until
+the DS clears. **Turn DNSSEC off at Porkbun first and let it clear before you
+touch the nameservers.**
+
+The SOA's hostmaster field says `dns.cloudflare.com`, which means this zone
+lived on Cloudflare at some point. Check whether `gachichio.org` is still
+sitting in the account as an inactive zone before adding it: if it is, flipping
+the nameservers publishes *that* zone's records — whatever they were the day it
+was abandoned — not the ones you are about to check.
+
+**The order**
+
+1. Porkbun → gachichio.org → **disable DNSSEC**. Wait for
+   `dig +short DS gachichio.org @1.1.1.1` to come back empty. Usually under an
+   hour; the TTL at `.org` decides.
+2. Cloudflare → Websites → Add a site → Free. If a `gachichio.org` zone already
+   exists in the account, open that one instead and audit every record in it.
+3. **Before switching anything**, compare Cloudflare's imported list against
+   the block above, line for line. Cloudflare's scanner has no zone-transfer
+   access — it guesses at names — and the records it is most likely to miss are
+   the ones nothing links to, which is exactly what MX and TXT are.
+4. Only now: Porkbun → Authoritative Nameservers → the two Cloudflare gave you.
+5. Wait for the zone to read **Active**.
+6. Re-check mail. Send yourself one, from outside.
+7. Re-enable DNSSEC, this time from Cloudflare's DNS → Settings pane, which
+   hands you a DS record to paste back at Porkbun.
+
+**Then, and only then, the game's address**
+
+A Worker route fires only on traffic Cloudflare is proxying. That is the whole
+decision:
+
+| | `gachichio.org/dovefallgame/` | `play.gachichio.org` |
+|---|---|---|
+| Needs | the root A record **orange-clouded** | its own record, created by Cloudflare |
+| Means | every request to your site now goes through Cloudflare | the root A record stays grey and behaves exactly as today |
+| Blast radius | your live site's TLS, caching and error pages all change hands | none |
+
+**Take the subdomain.** It is a Worker Custom Domain — Workers & Pages →
+dovefall-site → Settings → Domains & Routes → Add → Custom Domain — and
+Cloudflare creates the record and issues the certificate itself. Your existing
+site is not touched, not proxied, and cannot be affected by anything the game
+does.
+
+If you want the path form later, that is a separate, deliberate change on a day
+when breaking the main site would be survivable — and when you make it, set
+SSL/TLS to **Full (strict)**, never Flexible.
+
+Then, whichever you chose:
 
 ```bash
-# worker/wrangler.toml → ALLOWED_ORIGINS
+# site/wrangler.toml → uncomment ONE routes block, or use the dashboard
+cd site && npx wrangler deploy
+
+# worker/wrangler.toml → add the new origin to ALLOWED_ORIGINS
 cd ../worker && npx wrangler deploy
 ```
 
-> **Blast radius.** Option A puts every request to `gachichio.org` through
-> Cloudflare on its way to Caddy. Option B (`dovefall.gachichio.org`) is a
-> CNAME only, leaves the root grey-cloud, and cannot affect the VM at all. It
-> is strictly safer and a different URL. Both are written out in
-> `site/wrangler.toml`.
+> The game shares whatever address it is served from — `SHARE_URL` reads
+> `location`, not a constant — so nothing in the bundle needs rebuilding when
+> the address changes, and a share link can never point somewhere the game
+> is not.
 
 ---
 
