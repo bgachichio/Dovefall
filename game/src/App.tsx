@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  canRestart, continueRun, createSim, replayBlob, secondWind, VH,
+  canRestart, continueRun, createSim, isKids, replayBlob, secondWind, VH,
   type ModeId, type Sim,
 } from './engine/sim.ts';
 import { dailySeed, randomSeed, seedCode, todayKey } from './engine/rng.ts';
@@ -19,6 +19,7 @@ import { Hud, CountdownOverlay } from './ui/Hud.tsx';
 import { DeathPanel } from './ui/Death.tsx';
 import { Account, Credits, Leaderboard, NameScreen, Pause, Respawns, Settings, Title, Wardrobe } from './ui/Screens.tsx';
 import { buzz, gatePitch, play as playSound, setMuted } from './audio.ts';
+import { applyChrome, watchSystemTheme } from './chrome.ts';
 
 type Route = 'title' | 'name' | 'run' | 'board' | 'settings' | 'credits' | 'wardrobe' | 'account' | 'respawns';
 
@@ -32,6 +33,9 @@ export default function App() {
 
   const stored = load();
   const [route, setRoute] = useState<Route>(stored.tutorialDone ? 'title' : 'name');
+  /** The listeners below are created once; this is how they read the live route. */
+  const routeRef = useRef<Route>(route);
+  routeRef.current = route;
   const [phase, setPhase] = useState<'ready' | 'play' | 'dead'>('ready');
   const [score, setScore] = useState(0);
   const [countdown, setCountdown] = useState(0);
@@ -40,7 +44,7 @@ export default function App() {
   const [respawns, setRespawns] = useState(stored.respawns);
   const [streaks, setStreaks] = useState({ play: stored.playStreak, daily: stored.dailyStreak });
   const [isPb, setIsPb] = useState(false);
-  const [lastStreak, setLastStreak] = useState<{ current: number; alive: boolean; outcome?: string } | null>(null);
+  const [lastStreak, setLastStreak] = useState<api.Streak | null>(null);
   const [top10, setTop10] = useState(false);
   // Config.RESTART_MS. For a third of a second after a death nothing on the
   // panel responds: the tap that killed you is still in the air, and nobody
@@ -69,10 +73,9 @@ export default function App() {
 
   // ---------------------------------------------------------------- boot
   useEffect(() => {
-    document.documentElement.style.setProperty(
-      '--font-scale', String([0.9, 1, 1.15, 1.3][load().settings.fontScale] ?? 1),
-    );
-  }, [route]);
+    applyChrome();
+    return watchSystemTheme();
+  }, []);
 
   useEffect(() => {
     if (!api.online()) return;
@@ -146,6 +149,30 @@ export default function App() {
     };
   }, []);
 
+  // The phone's own Back gesture, which on a web game otherwise closes the tab
+  // mid-run. One sentinel entry is pushed and immediately re-pushed on every
+  // pop, so the browser always has something to go back TO and we get to decide
+  // what that means. Only when the player is already at the title — the one
+  // screen where leaving is what they meant — is the pop allowed through.
+  useEffect(() => {
+    history.pushState({ dovefall: true }, '');
+    const pop = () => {
+      const atRoot = routeRef.current === 'title';
+      if (atRoot) { history.back(); return; }
+      history.pushState({ dovefall: true }, '');
+      if (pausedRef.current) { pausedRef.current = false; setPaused(false); return; }
+      if (routeRef.current === 'run') {
+        if (simRef.current?.phase === 'play') { doPause(); return; }
+        backToTitle();
+        return;
+      }
+      back();
+    };
+    window.addEventListener('popstate', pop);
+    return () => window.removeEventListener('popstate', pop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // A run must never continue while the phone is in someone's pocket.
   useEffect(() => {
     const hide = () => { if (document.hidden) doPause(); };
@@ -191,6 +218,7 @@ export default function App() {
     setScore(0);
     pausedRef.current = false;
     setPaused(false);
+    stackRef.current = [];
     setRoute('run');
   }, []);
 
@@ -205,6 +233,9 @@ export default function App() {
     const pb = recordRun(s.mode, s.score, s.feathers);
     setIsPb(pb);
     if (s.tutorial) { save({ tutorialDone: true }); return; }
+    // Kids mode is not on the ladder and never touches the network. A child's
+    // play should not create an account record, a rank, or a rejected request.
+    if (isKids(s.mode)) return;
 
     api.submitRun({
       mode: s.mode,
@@ -222,25 +253,55 @@ export default function App() {
       if (r.streaks) {
         setStreaks({ play: r.streaks.play.current, daily: r.streaks.daily.current });
         save({ playStreak: r.streaks.play.current, dailyStreak: r.streaks.daily.current });
-        setLastStreak({ ...r.streaks.play, outcome: r.streaks.outcome });
+        setLastStreak(r.streaks.play);
       }
       if (r.personal_best) setTop10(true);
     }).catch(() => { /* the score is safe on this phone */ });
   }, [phase]);
 
-  // Where Back goes. A screen can be reached from the title, from settings, or
-  // from a death panel mid-run, and it has to return to whichever it was.
-  const fromRef = useRef<Route>('title');
+  // Where Back goes.
+  //
+  // This was one remembered screen, which is enough for title → settings and
+  // wrong for everything else: title → settings → credits pushed 'settings'
+  // into the slot, Back from credits returned to settings and left the slot
+  // reading 'settings', so Back on settings went to settings — a button that
+  // visibly did nothing. A stack is the honest structure; the mistake was
+  // storing a place instead of a path.
+  const stackRef = useRef<Route[]>([]);
   const go = useCallback((to: string) => {
-    setRoute((cur) => { fromRef.current = cur; return to as Route; });
+    // Read the current route from the ref and push OUTSIDE the updater. React
+    // is allowed to call a state updater more than once for a single update,
+    // and it does; a `push` in there quietly doubled the stack and sent Back to
+    // the wrong screen. State updaters have to be pure — this is what that
+    // rule is protecting.
+    const cur = routeRef.current;
+    if (cur === to) return;
+    stackRef.current.push(cur);
+    // A player who wanders settings → credits → settings → credits should not
+    // have to tap Back eight times to reach the sky again.
+    if (stackRef.current.length > 8) stackRef.current.shift();
+    routeRef.current = to as Route;
+    setRoute(to as Route);
   }, []);
-  const back = useCallback(() => setRoute(fromRef.current), []);
-  const backToTitle = () => { simRef.current = null; setRoute('title'); };
+  const back = useCallback(() => {
+    const to = stackRef.current.pop() ?? 'title';
+    routeRef.current = to;
+    setRoute(to);
+  }, []);
+  const backToTitle = () => {
+    simRef.current = null;
+    stackRef.current = [];
+    routeRef.current = 'title';
+    setRoute('title');
+  };
 
   const onRespawn = useCallback(() => {
     const s = simRef.current;
     if (!s) return;
     if (s.tutorial) { s.tutRespawns -= 1; continueRun(s); return; }
+    // Free, always, in kids mode. Nothing a six-year-old does in this game
+    // should end with a request for money.
+    if (isKids(s.mode)) { continueRun(s); return; }
     if (respawns <= 0) { go('respawns'); return; }
     setRespawns((n) => n - 1);
     api.spendRespawn().then((r) => setRespawns(r.respawns)).catch(() => { /* offline: allow it */ });
