@@ -82,9 +82,17 @@ cd worker
 # another one.
 openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET
 
-# Your Paystack SECRET key (sk_test_… first, sk_live_… when you go live). It
-# signs every webhook; without it the payments endpoint trusts nothing.
-npx wrangler secret put PAYSTACK_SECRET
+# Your Paystack SECRET key (sk_test_… first, sk_live_… when you go live).
+#
+# The NAME matters: the Worker reads env.PAYSTACK_SECRET_KEY. Set it under any
+# other name and /v1/paystack/webhook answers 503 "Payments are not configured"
+# for ever — Paystack keeps retrying, the dashboard shows failures, and not one
+# payment ever credits a heart.
+#
+# This is the only Paystack credential the game needs. The PUBLIC key is for
+# Paystack's inline checkout, which this game does not use: it opens a hosted
+# payment page instead, so there is nothing for a public key to do. See §6d.
+npx wrangler secret put PAYSTACK_SECRET_KEY
 
 # Optional. Comma-separated Google OAuth client IDs, for when you wire sign-in.
 # Guest play — which is every player on day one — works without it.
@@ -98,7 +106,7 @@ npx wrangler secret list     # expect the names, never the values
 | Name | Obtained from | Rotate if |
 |---|---|---|
 | `SESSION_SECRET` | `openssl rand -base64 32` | any session token is seen by anyone |
-| `PAYSTACK_SECRET` | Paystack dashboard → Settings → API Keys | it appears anywhere outside Paystack |
+| `PAYSTACK_SECRET_KEY` | Paystack dashboard → Settings → API Keys & Webhooks | it appears anywhere outside Paystack |
 | `GOOGLE_CLIENT_IDS` | Google Cloud console | not a secret; here for convenience |
 
 ---
@@ -310,6 +318,82 @@ cd ../worker && npx wrangler deploy
 
 ---
 
+### 6d · Payments — the Paystack journey, end to end
+
+Money is the one path where a silent failure costs somebody something, so this
+is written as the order to do it in, not as a list of settings.
+
+**Which key.** The secret key, and only the secret key, as
+`PAYSTACK_SECRET_KEY` (§3). It is never sent anywhere — the Worker uses it
+locally, to recompute the HMAC-SHA512 of the raw webhook body and compare it
+with the `x-paystack-signature` header. The public key belongs to Paystack's
+inline checkout widget; Dovefall opens a hosted payment page instead, so it has
+nothing to do and belongs nowhere in this project.
+
+**IP allowlisting: leave it off.** That setting restricts which IPs may call
+*the Paystack API* using your secret key. This Worker never calls the Paystack
+API — traffic goes the other way, Paystack to us — so an allowlist protects
+nothing here. It would, however, break the first time anything in this project
+does call Paystack, because a Cloudflare Worker has no stable egress IP to add.
+The webhook direction is already authenticated, by the signature.
+
+**The custom field is the part that actually matters.**
+
+`extractPayCode` (worker/src/paystack.js) looks for the player's code in
+`metadata.player_code`, or in `metadata.custom_fields` at the entry whose
+`variable_name` is `player_code`. It does **not** read a free-text payment note,
+because a hosted page does not send one.
+
+So the payment page at `PAYSTACK_LINK` must collect a custom field whose
+variable name is exactly `player_code`. Without it, every payment arrives,
+verifies, is recorded — and lands as `no_player`. The money is taken and no
+hearts appear. Paystack Dashboard → Payment Pages → your page → Custom fields
+→ add one, field name anything a human would understand ("Your Dovefall code"),
+**variable name `player_code`**.
+
+**In order:**
+
+1. **Test mode.** Dashboard toggle to Test. Set the test secret key:
+   `npx wrangler secret put PAYSTACK_SECRET_KEY` (`sk_test_…`).
+2. **Webhook URL**, in the Test section of Settings → API Keys & Webhooks:
+   `https://dovefall-api.bgkaranja.workers.dev/v1/paystack/webhook`
+   (or your custom API domain, once §6c is done).
+3. **Payment page**, in test mode, with the `player_code` custom field. Put its
+   URL in `worker/wrangler.toml` → `PAYSTACK_LINK` and redeploy.
+4. **Pay yourself.** Open the game → Settings → Respawns, copy the code, tap Pay
+   with Paystack, use a Paystack test card, paste the code into the custom field.
+5. **Check all three places**, because each proves a different link in the chain:
+
+```bash
+# Paystack delivered and we accepted it — 200, not 401 or 503
+#   Dashboard → Settings → API Keys & Webhooks → recent webhook attempts
+
+# We matched it to a player and credited
+npx wrangler d1 execute dovefall --remote \
+  --command "SELECT reference, status, amount, currency FROM payments ORDER BY rowid DESC LIMIT 5"
+
+# and the hearts exist
+npx wrangler d1 execute dovefall --remote \
+  --command "SELECT name, pay_code, respawns FROM players WHERE respawns > 0"
+```
+
+   `status` tells you which link broke: `credited` is success; `no_player` means
+   the custom field did not arrive or the code was mistyped; `below_min` means
+   the amount was under `RESPAWN_MIN_SUBUNITS`.
+
+6. **Go live.** Repeat 1–3 with the live key, the live webhook URL and a live
+   payment page — they are separate settings in Paystack, and a live payment
+   against a test webhook goes nowhere. Then pay yourself KES 50 for real and
+   run the three checks again. That receipt is the only proof that matters.
+
+A payment is credited exactly once: `payments.reference` is unique, and a
+repeat delivery of the same reference is recorded as a duplicate and ignored.
+Paystack retries on any non-200, which is why the handler answers 200 to
+anything validly signed, even when it cannot match a player — a retry loop
+would not find one either.
+
+---
+
 ## 7 · Verify — the gameplay pass
 
 Every line below is a thing that has broken in this codebase or could. Star
@@ -504,7 +588,7 @@ that the schema matches the files instead of knowing it.
 
 **A payment did not credit.**
 Check the Paystack dashboard for a delivered webhook. The endpoint verifies an
-HMAC-SHA512 signature, so a wrong `PAYSTACK_SECRET` shows as a delivered
+HMAC-SHA512 signature, so a wrong `PAYSTACK_SECRET_KEY` shows as a delivered
 webhook with a 401. Fix the secret and use Paystack's "resend" button.
 
 ---
