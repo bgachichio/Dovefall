@@ -82,11 +82,14 @@ export function makeEnv(overrides = {}) {
 }
 
 /** Call the Worker exactly as Cloudflare would. */
-export async function call(worker, env, method, path, { body, token, origin } = {}) {
+export async function call(worker, env, method, path, { body, token, origin, device } = {}) {
   const headers = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (token) headers.authorization = `Bearer ${token}`;
   if (origin) headers.origin = origin;
+  // Which phone is calling. The game sends this on every request; the Worker
+  // uses it to mark "this device" and to know which one to keep.
+  if (device) headers['x-dovefall-device'] = device;
 
   const res = await worker.fetch(
     new Request(`https://api.test${path}`, {

@@ -427,20 +427,47 @@ async function route(request, env, ctx) {
     );
   }
 
+  // Two shapes, because the client cannot name a device it has never been told
+  // the id of: GET above returns only a four-character hint, deliberately, since
+  // a full device id is enough to sign in as that player.
+  //
+  //   { device_id }  detach exactly that device.
+  //   no body        detach every device EXCEPT the caller's — which is what
+  //                  the one button in the game actually means.
+  //
+  // Without the second shape "sign out my other device" is impossible to call
+  // correctly, which is precisely what it was: the client sent no body, the
+  // handler demanded one, and the button returned 400 every time it was tapped.
   if (path === '/v1/devices' && method === 'DELETE') {
     const player = await requirePlayer(request, env, db, ctx);
-    const body = await readJson(request);
-    const deviceId = typeof body.device_id === 'string' ? body.device_id.trim() : '';
-    if (!DEVICE_ID_RE.test(deviceId)) return fail(400, 'bad_device_id', 'A device id is required.', ctx);
-    const removed = await store.detachDevice(db, player.id, deviceId);
-    if (!removed) return json({ removed: false }, ctx);
+    const body = await readJson(request).catch(() => ({}));
+    const named = typeof body?.device_id === 'string' ? body.device_id.trim() : '';
+
+    let removed = 0;
+    if (named) {
+      if (!DEVICE_ID_RE.test(named)) return fail(400, 'bad_device_id', 'A device id is required.', ctx);
+      removed = (await store.detachDevice(db, player.id, named)) ? 1 : 0;
+    } else {
+      // No header means the caller cannot be identified, and "everything except
+      // nobody" is every device — including this one. Refuse instead: an old
+      // client that signs itself out is a far worse failure than a 400.
+      const mine = bearerDevice(request);
+      if (!mine) {
+        return fail(400, 'unknown_device', 'Send x-dovefall-device, or name a device to remove.', ctx);
+      }
+      for (const d of await store.listDevices(db, player.id)) {
+        if (d.device_id === mine) continue;
+        if (await store.detachDevice(db, player.id, d.device_id)) removed += 1;
+      }
+    }
+    if (removed === 0) return json({ removed: false, count: 0 }, ctx);
 
     // The epoch is per-account, so bumping it signs out every device — this one
     // included. Hand the caller a token minted at the NEW epoch so the device
     // doing the removing stays signed in and only the others are kicked.
     await store.bumpEpoch(db, player.id);
     const fresh = await store.getPlayer(db, player.id);
-    return json({ removed: true, token: await sessionFor(fresh, env) }, ctx);
+    return json({ removed: true, count: removed, token: await sessionFor(fresh, env) }, ctx);
   }
 
   // ---------------------------------------------------------------- save
