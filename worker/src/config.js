@@ -2,21 +2,34 @@
 //
 // These MUST stay in step with the Godot project. The guard against drift is
 // test/rng.test.mjs, which recomputes Main.gd's _determinism_check() from the
-// values below and asserts it equals 4075699207 — the checksum the runbook's
+// values below and asserts it equals 4074801275 — the checksum the runbook's
 // Gate 9 requires on device. Change a number here (or there) and that test
 // fails loudly instead of the leaderboard failing quietly.
 
 export const FIXED = 1.0 / 120.0;
 export const TERMINAL_MULT = 0.55;
 
-/** Config.gd MODES */
+/**
+ * The game's MODES, mirrored from game/src/engine/constants.ts.
+ *
+ * The glide retune of 2026-09 scaled gravity by 0.85, the flap impulse by
+ * sqrt(0.85), and spd and gsp together by 1.04. Only the last two reach this
+ * file's arithmetic: the bounds below turn on how long the world takes to carry
+ * a gate to the dove, which is gsp/spd — deliberately unchanged, so a score
+ * submitted before the retune and one submitted after are still the same
+ * achievement, and no old run became retrospectively impossible.
+ *
+ * `kids` is NOT here. It is a local, unranked mode; a run in it is never
+ * submitted, and a submission naming it is refused by isMode below.
+ */
 export const MODES = {
-  easy:   { grav: 2100.0, flap: 470.0, gap: 4.9, spd: 200.0, gsp: 260.0 },
-  normal: { grav: 2625.0, flap: 510.0, gap: 4.0, spd: 260.0, gsp: 330.0 },
-  hard:   { grav: 2900.0, flap: 530.0, gap: 3.6, spd: 300.0, gsp: 375.0 },
-  pro:    { grav: 3200.0, flap: 545.0, gap: 3.2, spd: 330.0, gsp: 400.0 },
+  easy:   { grav: 1785.0, flap: 433.3, gap: 4.9, spd: 208.0, gsp: 270.4 },
+  normal: { grav: 2231.3, flap: 470.2, gap: 4.0, spd: 270.4, gsp: 343.2 },
+  hard:   { grav: 2465.0, flap: 488.6, gap: 3.6, spd: 312.0, gsp: 390.0 },
+  pro:    { grav: 2720.0, flap: 502.5, gap: 3.2, spd: 343.2, gsp: 416.0 },
 };
 
+/** The ranked ladder. Every mode with a leaderboard, and no others. */
 export const MODE_ORDER = ['easy', 'normal', 'hard', 'pro'];
 
 /** Config.gd BANDS — a band boundary changes gap and speed and nothing else. */

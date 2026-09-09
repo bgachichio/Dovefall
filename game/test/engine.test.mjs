@@ -48,19 +48,22 @@ test('the playfield is a constant — this is the whole leaderboard argument', (
   assert.equal(VW, 1080);
   assert.equal(VH, 1920);
   assert.equal(doveW(), 336);
-  assert.equal(doveH(), 210);
+  // 210 until the dove was redrawn shorter on 2026-09-09. What that change had
+  // to preserve was the CLEARANCE — gap minus hitbox — and that is asserted
+  // mode by mode, against the original tuning, in retune.test.mjs.
+  assert.equal(doveH(), 168);
   assert.equal(gateW(), 135);
 
   // Band I opens wider on purpose — the first five gates are the tutorial the
   // game gives every player whether they asked for one or not.
   const s = createSim({ seed: 0xd0fe });
   assert.equal(s.score, 0);
-  assert.equal(Math.round(curGap(s)), 980, 'normal, band I');
+  assert.equal(Math.round(curGap(s)), 936, 'normal, band I');
 
   s.score = 5;
-  assert.equal(curGap(s), 840, 'normal, band II — the number the docs quote');
+  assert.equal(Math.round(curGap(s)), 802, 'normal, band II');
   const band = (VH * 0.74 - curGap(s)) - VH * 0.09;
-  assert.equal(Math.round(band), 408, 'the placement band');
+  assert.equal(Math.round(band), 446, 'the placement band');
 
   s.score = 50;
   assert.ok(curGap(s) < 840, 'and it keeps tightening');

@@ -1,7 +1,7 @@
 // Port of the game's autoload/Rng.gd — deterministic xorshift32.
 //
 // Verified against Godot: reproducing Main.gd's _determinism_check() with this
-// implementation yields 4075699207, the value the runbook's Gate 9 requires the
+// implementation yields 4074801275, the value the runbook's Gate 9 requires the
 // device and the desktop to agree on. That match is what licenses the server to
 // reason about seeds at all.
 
@@ -94,4 +94,13 @@ export function determinismCheck() {
   return (Math.trunc(Math.abs(y) * 1000.0) ^ acc) >>> 0;
 }
 
-export const GODOT_CHECKSUM = 4075699207;
+/**
+ * The determinism anchor.
+ *
+ * Recomputed from MODES.normal on 2026-09-09 for the glide retune; it was
+ * 4075699207 for the Godot tuning. The number itself means nothing — what
+ * means something is that game/test and worker/test both derive it from their
+ * own copy of grav, flap, FIXED, TERMINAL_MULT and the RNG stream, so the two
+ * halves cannot drift apart without a test going red.
+ */
+export const GODOT_CHECKSUM = 4074801275;

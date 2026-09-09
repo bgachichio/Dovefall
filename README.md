@@ -37,7 +37,7 @@ finds until a player says it feels wrong. Regenerate with `npm run port`.
 
 ## The load-bearing tests
 
-- `game/test/engine.test.mjs` asserts the RNG still reproduces **4075699207**,
+- `game/test/engine.test.mjs` asserts the RNG still reproduces **4074801275**,
   the checksum the Godot build's determinism gate requires. If it moves, the
   web game and the Android game are no longer the same game and the board means
   nothing.

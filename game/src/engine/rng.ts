@@ -69,4 +69,13 @@ export function randomSeed(): number {
   return b[0] === 0 ? 1 : b[0];
 }
 
-export const GODOT_CHECKSUM = 4075699207;
+/**
+ * The determinism anchor.
+ *
+ * Recomputed from MODES.normal on 2026-09-09 for the glide retune; it was
+ * 4075699207 for the Godot tuning. The number itself means nothing — what
+ * means something is that game/test and worker/test both derive it from their
+ * own copy of grav, flap, FIXED, TERMINAL_MULT and the RNG stream, so the two
+ * halves cannot drift apart without a test going red.
+ */
+export const GODOT_CHECKSUM = 4074801275;

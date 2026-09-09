@@ -92,6 +92,26 @@ export const bandFor = (score: number) =>
   BANDS.reduce((r, b) => (score >= b.from ? b : r), BANDS[0]);
 export const rampFor = (score: number) =>
   RAMP.reduce((r, x) => (score >= x.from ? x : r), RAMP[0]);
+
+/**
+ * Kids mode never ramps.
+ *
+ * The RAMP table is what turns Dovefall from a flying game into a gauntlet:
+ * around score 12 the ground spikes arrive, at 20 the air hazards, at 35 the
+ * gates start drifting. All of it is good, and none of it belongs in front of
+ * a six-year-old, who is still learning that the tap is what makes the bird go
+ * up. So kids mode holds the opening conditions forever — wide vertical spread,
+ * small step between gates, no hazards, no drift — and the only thing that ever
+ * changes is the colour of the sky.
+ */
+const KIDS_RAMP = {
+  from: 0, amp: 0.34, delta: 0.15, ground: false, air: false, drift: false, dens: 0,
+} as const;
+
+/** True for the mode that is deliberately not on the ladder. */
+export const isKids = (mode: string): boolean => mode === 'kids';
+
+export const rampForSim = (s: Sim) => (isKids(s.mode) ? KIDS_RAMP : rampFor(s.score));
 export const chapterIndex = (score: number) =>
   CHAPTERS.reduce((r, c, i) => (score >= c.from ? i : r), 0);
 
@@ -101,9 +121,16 @@ export const doveW = () => DOVE_W * dsize();
 export const doveH = () => DOVE_H * dsize();
 export const gateW = () => Math.max(24, VW * 0.125);
 
+/**
+ * BANDS narrow the gap and speed the world up as the score climbs. Kids mode
+ * stays in band I forever, for the same reason it never ramps: a game that
+ * gets harder the better you do is a fine game and a poor toy.
+ */
+const bandForSim = (s: Sim) => (isKids(s.mode) ? BANDS[0] : bandFor(s.score));
+
 export const curGap = (s: Sim) =>
-  doveH() * s.m.gap * bandFor(s.score).gap_x * (1 + s.assist);
-export const curSpd = (s: Sim) => s.m.spd * bandFor(s.score).spd_x;
+  doveH() * s.m.gap * bandForSim(s).gap_x * (1 + s.assist);
+export const curSpd = (s: Sim) => s.m.spd * bandForSim(s).spd_x;
 
 // ------------------------------------------------------------------ create
 export interface SimOptions {
@@ -159,7 +186,7 @@ export function createSim(o: SimOptions): Sim {
 
 // ------------------------------------------------------------------ spawn
 export function spawn(s: Sim, atX: number): void {
-  const r = rampFor(s.score);
+  const r = rampForSim(s);
   const g = curGap(s);
   const lo0 = VH * 0.09;
   let hi0 = VH * 0.74 - g;

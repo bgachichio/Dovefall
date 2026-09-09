@@ -1,10 +1,21 @@
-// GENERATED — do not edit by hand.
+// The tuning. Originally generated from autoload/Config.gd and autoload/Art.gd
+// of the Dovefall Godot project by `npm run port -- <godot-project>`.
 //
-//   npm run port -- <godot-project>
+// That project is no longer part of this repository — the port script still
+// works, but it takes a path that nothing here provides, so THIS FILE is now
+// the source of these numbers rather than a copy of them. Edit it directly and
+// deliberately; the old "do not edit by hand" banner was true when there was
+// something to regenerate from, and became a lie the day the engine was
+// dropped.
 //
-// Transformed from autoload/Config.gd and autoload/Art.gd of the Dovefall
-// Godot project. These are the tuned numbers from the Android build: change
-// one here and the web game stops being the same game.
+// Two things keep the two runtimes honest about it:
+//
+//   worker/src/config.js  mirrors MODES and BANDS, and must change in the same
+//                         commit, or the server will reject runs the client
+//                         considers ordinary.
+//   the determinism check  in game/test and worker/test recomputes a checksum
+//                         from grav, flap and the RNG. Change one of them
+//                         without the other and the tests fail loudly.
 //
 // The server's copy of the RNG (worker/src/rng.js) and its plausibility bounds
 // (worker/src/bounds.js) are derived from these same values, which is what
@@ -20,14 +31,54 @@ export const RESTART_MS = 320 as const;
 
 export const DDA_WIDEN = 0.04 as const;
 
+/**
+ * The glide retune.
+ *
+ * Gravity is 0.85 of what it was and the flap impulse is sqrt(0.85) of what it
+ * was, which is not a coincidence: the height a single tap buys you is
+ * flap^2 / 2*grav, so scaling grav by k and flap by sqrt(k) leaves that height
+ * identical to four significant figures while the arc takes 8.4% longer to
+ * travel. That is the whole difference between a jump and a glide — the dove
+ * goes exactly as high, just less abruptly — and terminal velocity, which is
+ * grav * TERMINAL_MULT, drops 15% with it, so the fall is gentler too.
+ *
+ * spd and gsp both rise 4%. Both, together, on purpose: gates arrive every
+ * gsp/spd seconds, so scaling the pair by the same factor leaves the cadence —
+ * and therefore the score you can reach in a given time — exactly as it was.
+ * The world is 4% brisker and the leaderboard still means the same thing.
+ *
+ * What does change: a full flap arc now covers 12.8% more ground while gates
+ * are only 4% further apart, so on normal it is about 3.0 taps between gates
+ * where it was 3.3. Fewer, larger corrections. That is the retune, stated
+ * honestly — it is not a difficulty-neutral change, because softening gravity
+ * cannot be one.
+ *
+ * gap is measured in dove-heights, and the dove got shorter in the same commit
+ * (DOVE_H, below), so gap moved to compensate: the hole you fly through is the
+ * same hole in pixels, to the pixel. hit (the collision box, as a fraction of
+ * the sprite) and coy (coyote time) are untouched.
+ *
+ * `kids` is not on the ladder. See MODE_ORDER and RANKED_MODES below.
+ */
 export const MODES = {
-	"easy":   {"grav": 2100.0, "flap": 470.0, "gap": 4.9, "spd": 200.0, "gsp": 260.0, "hit": 0.82, "coy": 0.180},
-	"normal": {"grav": 2625.0, "flap": 510.0, "gap": 4.0, "spd": 260.0, "gsp": 330.0, "hit": 0.91, "coy": 0.170},
-	"hard":   {"grav": 2900.0, "flap": 530.0, "gap": 3.6, "spd": 300.0, "gsp": 375.0, "hit": 0.95, "coy": 0.110},
-	"pro":    {"grav": 3200.0, "flap": 545.0, "gap": 3.2, "spd": 330.0, "gsp": 400.0, "hit": 1.00, "coy": 0.060},
+	"kids":   {"grav": 1300.0, "flap": 392.0, "gap": 5.300, "spd": 168.0, "gsp": 290.0, "hit": 0.70, "coy": 0.260},
+	"easy":   {"grav": 1785.0, "flap": 433.3, "gap": 5.920, "spd": 208.0, "gsp": 270.4, "hit": 0.82, "coy": 0.180},
+	"normal": {"grav": 2231.3, "flap": 470.2, "gap": 4.773, "spd": 270.4, "gsp": 343.2, "hit": 0.91, "coy": 0.170},
+	"hard":   {"grav": 2465.0, "flap": 488.6, "gap": 4.263, "spd": 312.0, "gsp": 390.0, "hit": 0.95, "coy": 0.110},
+	"pro":    {"grav": 2720.0, "flap": 502.5, "gap": 3.750, "spd": 343.2, "gsp": 416.0, "hit": 1.00, "coy": 0.060},
 } as const;
 
-export const MODE_ORDER = ["easy", "normal", "hard", "pro"] as const;
+/** Every mode, in the order the Settings screen lists them. */
+export const MODE_ORDER = ["kids", "easy", "normal", "hard", "pro"] as const;
+
+/**
+ * The modes that carry a leaderboard.
+ *
+ * Kids mode is deliberately outside it. A six-year-old should not be able to
+ * put a 400 next to an adult's 55 and be told, correctly, that it does not
+ * count — so it is never offered the comparison in the first place.
+ */
+export const RANKED_MODES = ["easy", "normal", "hard", "pro"] as const;
 
 export const BANDS = [
 	{"from": 0,  "gap_x": 1.167, "spd_x": 1.00, "name": "I"},
@@ -88,7 +139,21 @@ export const FLASH_ALPHA_MAX = 0.22 as const;
 
 export const DOVE_W = 16 as const;
 
-export const DOVE_H = 10 as const;
+/**
+ * Eight rows, not ten.
+ *
+ * The dove read as a brick on a phone. It is now 20% shorter with a wing that
+ * carries about 11% more of it — and because the gap a player flies through is
+ * measured in dove-heights (curGap in sim.ts), shrinking this number alone
+ * would have shrunk the hole with it and quietly made the game harder.
+ *
+ * So every mode's `gap` was re-derived to hold the one thing that decides how
+ * hard a gate is: the pixels of clearance between the top of the hitbox and the
+ * bottom of it. gap_new = 1.25 * gap_old - 0.25 * hit, which leaves
+ * (gap in px - hitbox height in px) identical to the pixel. game/test asserts
+ * exactly that, mode by mode.
+ */
+export const DOVE_H = 8 as const;
 
 export const DOVE_DIVISOR = 51.0 as const;
 
@@ -121,119 +186,138 @@ export const INK = "#0D1420" as const;
 
 export const PAPER = "#EEF4FF" as const;
 
+/**
+ * Every word the game says.
+ *
+ * The rule for this table: a game speaks in the imperative and the concrete.
+ * "Get respawns" is a shop; "Keep flying" is a game. "Reduced flashing" is a
+ * settings menu; "Gentle flashes" is a kindness. Nothing here explains itself
+ * unless a player would otherwise be stuck, and nothing apologises.
+ *
+ * The core loop still contains no words at all, which is why the whole
+ * translatable surface fits on a screen.
+ */
 export const STRINGS = {
 	"en": {
-		"play": "Play", "daily": "Daily Challenge", "wardrobe": "Wardrobe",
+		"play": "Fly", "daily": "Today's Sky", "wardrobe": "Wardrobe",
 		"settings": "Settings", "leaderboard": "Leaderboard", "back": "Back",
-		"audio": "Audio", "music": "Music", "sfx": "Sound effects", "haptics": "Haptics",
-		"visual": "Visual", "atmosphere": "Atmosphere", "flashing": "Reduced flashing",
-		"colourblind": "Colour-blind palette", "lefthand": "Left-handed HUD",
-		"game": "Game", "difficulty": "Difficulty", "account": "Account",
+		"audio": "Sound", "sfx": "Sound", "haptics": "Buzz",
+		"visual": "Look", "atmosphere": "Weather", "flashing": "Gentle flashes",
+		"colourblind": "Colour-blind palette", "lefthand": "Left-handed",
+		"game": "Flight", "difficulty": "How hard", "account": "Account",
 		"playgames": "Google Play Games", "restore": "Restore purchases",
 		"language": "Language", "legal": "Legal", "privacy": "Privacy policy",
 		"terms": "Terms", "deletedata": "Delete my data", "licences": "Open-source licences",
 		"about": "About", "version": "Version", "seed": "Last run seed",
-		"off": "Off", "low": "Low", "full": "Full", "on": "On", "reduced": "Reduced",
-		"easy": "Easy", "normal": "Normal", "hard": "Hard", "pro": "Pro",
+		"off": "Off", "full": "Full", "on": "On", "reduced": "Some",
+		"kids": "Kids", "easy": "Easy", "normal": "Normal", "hard": "Hard", "pro": "Pro",
 		"owned": "Worn", "wear": "Wear", "locked": "Locked",
 		"streak": "Streak", "best": "Best", "feathers": "Feathers",
 		"tagline": "One touch. Storm, deep and sky.",
 		"credits": "Credits", "madeby": "Made by", "builtwith": "Built with",
-		"chapters": "Chapters", "website": "Website",
-		"playername": "Player name", "savename": "Save name",
-		"recovery": "Recovery", "getcode": "Get a recovery code",
-		"entercode": "Recovery code", "restoreacct": "Restore my account",
-		"respawns": "Respawns", "getrespawns": "Get respawns",
-		"copycode": "Copy code", "paynow": "Pay with Paystack", "ihavepaid": "I have paid",
-		"share": "Share", "sharebest": "Share my score",
-		"suggest": "Suggest names", "keepname": "Keep my name",
-		"choosename": "Choose your name", "wellflown": "Well flown",
-		"days": "days", "streaksaved": "Streak saved", "streakboard": "Longest streaks",
+		"chapters": "Chapters", "website": "Elsewhere",
+		"playername": "Your name", "savename": "That's me",
+		"recovery": "Recovery", "getcode": "Show me the code",
+		"entercode": "Recovery code", "restoreacct": "Restore it",
+		"respawns": "Respawns", "getrespawns": "More hearts",
+		"copycode": "Copy the code", "paynow": "Pay with Paystack", "ihavepaid": "I've paid",
+		"share": "Share", "sharebest": "Tell someone",
+		"suggest": "Pick one", "keepname": "Keep my name",
+		"choosename": "What shall we call you?", "wellflown": "Well flown",
+		"days": "days", "streaksaved": "Streak held", "streakboard": "Longest streaks",
+		"threemore": "Three more", "orname": "Or make one up",
+		"guest": "Flying as a guest", "resume": "Back to it", "quit": "Leave the sky",
+		"flyagain": "Fly again", "keepflying": "Keep flying", "newbest": "A new best",
+		"clipped": "Clipped", "down": "Down", "unranked": "off the board",
+		"tapflap": "TAP TO FLAP", "clickflap": "CLICK TO FLAP", "orspace": "or press space",
+		"hazard": "SOMETHING AHEAD · CLIMB OR DIVE",
+		"alltime": "All time", "you": "You", "saved": "Saved",
+		"nonet": "No connection. Everything you have flown is safe on this phone.",
+		"offline": "Offline — make one up instead.",
 	},
 	"sw": {
-		"play": "Cheza", "daily": "Changamoto ya Leo", "wardrobe": "Nguo",
+		"play": "Ruka", "daily": "Anga la Leo", "wardrobe": "Nguo",
 		"settings": "Mipangilio", "leaderboard": "Ubao wa Alama", "back": "Rudi",
-		"audio": "Sauti", "music": "Muziki", "sfx": "Sauti za mchezo", "haptics": "Mtetemo",
-		"visual": "Mwonekano", "atmosphere": "Mazingira", "flashing": "Punguza mwangaza",
+		"audio": "Sauti", "sfx": "Sauti", "haptics": "Mtetemo",
+		"visual": "Mwonekano", "atmosphere": "Hali ya anga", "flashing": "Mwangaza mpole",
 		"colourblind": "Rangi kwa upofu wa rangi", "lefthand": "Mkono wa kushoto",
-		"game": "Mchezo", "difficulty": "Ugumu", "account": "Akaunti",
+		"game": "Safari", "difficulty": "Ugumu", "account": "Akaunti",
 		"playgames": "Google Play Games", "restore": "Rejesha manunuzi",
 		"language": "Lugha", "legal": "Kisheria", "privacy": "Sera ya faragha",
 		"terms": "Masharti", "deletedata": "Futa data yangu", "licences": "Leseni huria",
 		"about": "Kuhusu", "version": "Toleo", "seed": "Mbegu ya mchezo",
-		"off": "Zima", "low": "Chini", "full": "Kamili", "on": "Washa", "reduced": "Punguza",
-		"easy": "Rahisi", "normal": "Kawaida", "hard": "Ngumu", "pro": "Bingwa",
+		"off": "Zima", "full": "Kamili", "on": "Washa", "reduced": "Kiasi",
+		"kids": "Watoto", "easy": "Rahisi", "normal": "Kawaida", "hard": "Ngumu", "pro": "Bingwa",
 		"owned": "Imevaliwa", "wear": "Vaa", "locked": "Imefungwa",
 		"streak": "Mfululizo", "best": "Bora", "feathers": "Manyoya",
 		"tagline": "Mguso mmoja. Dhoruba, kina na anga.",
-		
-		
 		"credits": "Waliohusika", "madeby": "Imetengenezwa na",
-		"builtwith": "Imejengwa kwa", "chapters": "Sura", "website": "Tovuti",
-		"playername": "Jina la mchezaji", "savename": "Hifadhi jina",
-		"recovery": "Kurejesha", "getcode": "Pata msimbo wa kurejesha",
-		"entercode": "Msimbo wa kurejesha", "restoreacct": "Rejesha akaunti yangu",
-		"respawns": "Nafasi zaidi", "getrespawns": "Pata nafasi zaidi",
+		"builtwith": "Imejengwa kwa", "chapters": "Sura", "website": "Kwingineko",
+		"playername": "Jina lako", "savename": "Ndiye mimi",
+		"recovery": "Kurejesha", "getcode": "Nionyeshe msimbo",
+		"entercode": "Msimbo wa kurejesha", "restoreacct": "Nirudishie",
+		"respawns": "Nafasi zaidi", "getrespawns": "Mioyo zaidi",
 		"copycode": "Nakili msimbo", "paynow": "Lipa kwa Paystack", "ihavepaid": "Nimelipa",
-		"share": "Shiriki", "sharebest": "Shiriki alama yangu",
-		"suggest": "Pendekeza majina", "keepname": "Baki na jina langu",
-		"choosename": "Chagua jina lako", "wellflown": "Safari njema",
-		"days": "siku", "streaksaved": "Mfululizo umeokolewa", "streakboard": "Mifululizo mirefu",
+		"share": "Shiriki", "sharebest": "Mwambie mtu",
+		"suggest": "Chagua moja", "keepname": "Baki na jina langu",
+		"choosename": "Tukuite nani?", "wellflown": "Safari njema",
+		"days": "siku", "streaksaved": "Mfululizo umeshikilia", "streakboard": "Mifululizo mirefu",
+		"threemore": "Mengine matatu", "orname": "Au buni lako",
+		"guest": "Unaruka kama mgeni", "resume": "Rudi kwenye mchezo", "quit": "Ondoka angani",
+		"flyagain": "Ruka tena", "keepflying": "Endelea kuruka", "newbest": "Bora kuliko zote",
+		"clipped": "Umegusa", "down": "Umeanguka", "unranked": "nje ya ubao",
+		"tapflap": "GUSA ILI KURUKA", "clickflap": "BOFYA ILI KURUKA", "orspace": "au bonyeza space",
+		"hazard": "KUNA KITU MBELE · PANDA AU SHUKA",
+		"alltime": "Wakati wote", "you": "Wewe", "saved": "Imehifadhiwa",
+		"nonet": "Hakuna mtandao. Kila ulichoruka kipo salama kwenye simu hii.",
+		"offline": "Nje ya mtandao — buni jina lako.",
 	},
 } as const;
 
 export const DOVE_FRAMES = [
-	
+	// 0: wings up, straight after a tap
 	[
 	"....DDDDDD......",
-	"..DDWWWWWWDD....",
-	".DWWGGGGWWWWD...",
-	".DWGGGGGWWEEWD..",
-	"DWGGGGGGWWWEEWDD",
-	"DWWGGGGGWWWWWWDO",
+	"..DDGGGGGGDD....",
+	".DWGGGGGGWWWWD..",
+	"DWGGGGGGGWWEEWD.",
+	"DWWGGGGGWWWWWWDD",
 	".DWWWWWWWWWWWWDO",
-	"..DWWWWWWWWWWD..",
-	"...DDWWWWWWDD...",
-	".....DDDDDD.....",
+	"..DWWWWWWWWWWWDO",
+	"...DDWWWWWWWDD..",
 	],
-	
+	// 1: wings level — the glide
 	[
 	"....DDDDDD......",
 	"..DDWWWWWWDD....",
-	".DWWWWWWWWWWD...",
-	".DWWWWWWWEEWWD..",
-	"DWGGGGGWWWEEWWDD",
-	"DWGGGGGGWWWWWWDO",
-	"DWGGGGGGWWWWWWDO",
 	".DWWWWWWWWWWWD..",
-	"..DDWWWWWWDD....",
-	"....DDDDDD......",
+	"DWWWWWWWWWWEEWD.",
+	"DWGGGGGGGWWWWWDD",
+	".DWGGGGGGGWWWWDO",
+	"..DWWGGGGWWWWWDO",
+	"...DDWWWWWWWDD..",
 	],
-	
+	// 2: wings down — the fall
 	[
 	"......DDDD......",
 	"...DDWWWWWWD....",
 	"..DWWWWWWWWWD...",
-	".DWWWWWWWEEWWD..",
-	"DWWWWWWWWWEEWWDD",
-	"DWWWWWWWWWWWWWDO",
-	".DWGGGGGWWWWWDO.",
-	".DWGGGGGGWWWWD..",
-	"..DWGGGGGGWWD...",
-	"...DDWWWWWWD....",
+	".DWWWWWWWWEEWD..",
+	"DWWWWWWWWWWWWWDD",
+	".DWGGGGGGGWWWWDO",
+	"..DWGGGGGGGWWWDO",
+	"...DDWGGGGWWDD..",
 	],
-	
+	// 3: wings mid — the recovery
 	[
 	".....DDDDD......",
-	"..DDWWWWWWWD....",
-	".DWWWWWWWWWWD...",
-	".DWWWWWWWEEWWD..",
-	"DWWGGGGWWWEEWWDD",
-	"DWGGGGGGWWWWWWDO",
-	"DWGGGGGGWWWWWWDO",
-	".DWWGGGWWWWWWD..",
 	"..DDWWWWWWDD....",
-	"....DDDDDD......",
+	"..DWWGGGGWWWWWD.",
+	"DWGGGGGGGWWEEWD.",
+	"DWGGGGGGGWWWWWDD",
+	".DWWWGGGWWWWWWDO",
+	"..DWWWWWWWWWWWDO",
+	"...DDWWWWWWWDD..",
 	],
 ] as const;
 

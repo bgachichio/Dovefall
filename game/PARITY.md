@@ -38,7 +38,7 @@ transcription.
 | Floor / ceiling | die below `vh − vh×0.12`; clamp at 0 with `vy = 0` | identical | same |
 | Death fall | `vy += grav·dt×1.4`, rot to 1.6, rest at `vh − vh×0.14` | identical | same |
 | Continue | clear to `vw×0.26 + dove_w × 2.6`, invuln, countdown | identical | same |
-| RNG | xorshift32 from `Rng.gd` | same stream, checksum **4075699207** asserted | same |
+| RNG | xorshift32 from `Rng.gd` | same stream, checksum **4074801275** asserted | same |
 | Daily seed | `y×10000 + m×100 + d`, UTC | identical | same |
 
 `test/engine.test.mjs` asserts the checksum, the derived sizes, the placement
