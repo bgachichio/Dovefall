@@ -12,6 +12,7 @@ import {
   LIGHT_MIN, LIGHT_MAX, DUSK_WARM, DAY_LENGTH_PX,
 } from './constants.ts';
 import { VW, VH, GROUND, dsize, doveW, doveH, gateW, type Sim } from './sim.ts';
+import { reducedFlashing } from '../chrome.ts';
 
 type Palette = Record<string, string>;
 type Sprite = readonly string[];
@@ -114,6 +115,7 @@ export function lookOf(s: Sim): Look {
 export function draw(g: CanvasRenderingContext2D, s: Sim, skinId: string): void {
   const L = lookOf(s);
   const px = dsize();
+  const calm = reducedFlashing();
   g.imageSmoothingEnabled = false;
 
   // sky and the three parallax bands
@@ -133,10 +135,11 @@ export function draw(g: CanvasRenderingContext2D, s: Sim, skinId: string): void 
   drawParticles(g, s, L);
   drawGates(g, s, L, px);
   drawHazards(g, s, L, px);
-  drawDove(g, s, skinId, px);
+  drawDove(g, s, skinId, px, calm);
 
-  // Death flash, capped for photosensitivity.
-  if (s.flash > 0) {
+  // Death flash, capped for photosensitivity — and skipped outright when the
+  // player, or their phone, has asked for less flashing.
+  if (s.flash > 0 && !calm) {
     g.fillStyle = `rgba(255,255,255,${(s.flash * FLASH_ALPHA_MAX).toFixed(3)})`;
     g.fillRect(0, 0, VW, VH);
   }
@@ -207,7 +210,7 @@ function drawHazards(g: CanvasRenderingContext2D, s: Sim, L: Look, px: number): 
   }
 }
 
-function drawDove(g: CanvasRenderingContext2D, s: Sim, skinId: string, px: number): void {
+function drawDove(g: CanvasRenderingContext2D, s: Sim, skinId: string, px: number, calm = false): void {
   const skin = SKINS.find((k) => k.id === skinId) ?? SKINS[0];
   const pal: Palette = { W: skin.W, G: skin.G, D: skin.D, E: skin.E, O: skin.O };
   const frame = frameFor(s);
@@ -216,7 +219,11 @@ function drawDove(g: CanvasRenderingContext2D, s: Sim, skinId: string, px: numbe
   g.save();
   g.translate(VW * 0.26, s.y);
   g.rotate(s.rot);
-  if (s.invuln > 0) g.globalAlpha = 0.45 + 0.55 * Math.abs(Math.sin(s.t * 18));
+  // Invulnerability has to be legible without strobing at 3 Hz: when flashing
+  // is reduced the dove goes steadily translucent instead of blinking.
+  if (s.invuln > 0) {
+    g.globalAlpha = calm ? 0.7 : 0.45 + 0.55 * Math.abs(Math.sin(s.t * 18));
+  }
   g.drawImage(sprite, -doveW() / 2, -doveH() / 2, DOVE_W * px, DOVE_H * px);
   g.restore();
 }

@@ -20,6 +20,42 @@
   --row: 52px;
   --font-scale: 1;
   color-scheme: dark;
+  /* The scrim over a paused or finished run. Fixed, never themed: it lies on
+     top of the playfield, and a pale wash over the chapter art reads as a
+     rendering fault rather than a choice. */
+  --scrim: rgba(13, 20, 32, 0.74);
+}
+
+/* Light theme.
+   Menus only. The playfield's colours come from the chapter palette and are
+   identical for every player on every device — see chrome.ts. Contrast here is
+   deliberate, not decorative: paper-on-ink is ~15:1, dim ~5.2:1, and white on
+   copper ~6.6:1, so every one of them clears WCAG AA at body size. */
+:root[data-theme="light"] {
+  --color-ink: #F2EEE6;
+  --color-slot: #E5DED1;
+  --color-slot-2: #D6CCBA;
+  --color-paper: #16202E;
+  --color-dim: #4E5B6D;
+  --color-copper: #9A5320;
+  --color-gold: #7A5410;
+  color-scheme: light;
+}
+
+/* Reduced flashing. The renderer drops the death flash and the strobe on its
+   own; this is the DOM half — nothing on a menu may pulse. */
+:root[data-flashing="reduced"] *,
+:root[data-flashing="reduced"] *::before,
+:root[data-flashing="reduced"] *::after {
+  animation: none !important;
+}
+
+/* Text size is set ONCE, on the root.
+   It used to be set on html, body and #root together, each in rem — and rem on
+   a descendant resolves against the root font size that the line above it just
+   changed. XL did not mean 1.3x, it meant 1.3 cubed. */
+html {
+  font-size: calc(100% * var(--font-scale));
 }
 
 html, body, #root {
@@ -32,7 +68,6 @@ html, body, #root {
   -webkit-user-select: none;
   user-select: none;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: calc(1rem * var(--font-scale));
 }
 
 /* The playfield never scrolls and never selects. Menus may scroll.

@@ -9,13 +9,14 @@
 const KEY = 'dovefall.v1';
 
 export interface Settings {
-  music: 0 | 1 | 2;
+  // There is no music track, so there is no music setting. Saves written by an
+  // older build still carry `music`; nothing reads it, and it costs one key.
   sfx: boolean;
   haptics: boolean;
   atmos: 0 | 1 | 2;
   flashing: boolean;
   lefthand: boolean;
-  mode: 'easy' | 'normal' | 'hard' | 'pro';
+  mode: 'kids' | 'easy' | 'normal' | 'hard' | 'pro';
   skin: string;
   lang: 'en' | 'sw';
   theme: 'auto' | 'light' | 'dark';
@@ -49,7 +50,7 @@ const DEFAULTS: Save = {
   tutorialDone: false,
   sessionDeaths: 0,
   settings: {
-    music: 2, sfx: true, haptics: true, atmos: 2, flashing: false,
+    sfx: true, haptics: true, atmos: 2, flashing: false,
     lefthand: false, mode: 'normal', skin: 'dove', lang: 'en',
     theme: 'auto', fontScale: 1,
   },
