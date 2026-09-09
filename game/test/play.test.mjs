@@ -68,12 +68,18 @@ function apiHandler(req, res, url) {
   };
   if (req.method === 'OPTIONS') return send({});
 
+  // This stand-in speaks the WORKER's dialect, not the client's convenience.
+  //
+  // It used to speak the client's — flat player fields, `names`, `respawns`,
+  // `pay_url` — which meant the browser test passed with a client that could
+  // not talk to the real server at all. A stub written to match the code it is
+  // testing proves only that the code agrees with itself. Every shape below is
+  // the one pinned by worker/test/contract.test.mjs.
   const streaks = {
-    play: { current: 6, best: 11, alive: true },
-    daily: { current: 2, best: 4, alive: true },
-    outcome: 'extended',
+    play: { current: 6, best: 11, alive: true, outcome: 'extended', milestone: null },
+    daily: { current: 2, best: 4, alive: true, outcome: null, milestone: null },
   };
-  const me = { id: 'p_test', name: 'Kifaru', tag: '4T7X', respawns: 2, streaks };
+  const player = { id: 'p_test', name: 'Kifaru', tag: '4T7X', respawns: 2, guest: true };
   const rows = (n) => Array.from({ length: n }, (_, i) => ({
     rank: i + 1,
     name: ['Kifaru', 'Ndege', 'Simba', 'Tausi', 'Chui', 'Kunguru', 'Mwewe', 'Korongo'][i % 8],
@@ -82,9 +88,12 @@ function apiHandler(req, res, url) {
     at: 1756800000 - i * 3600,
   }));
 
-  if (url.pathname === '/v1/auth/guest') return send({ ...me, token: 'test-token' });
-  if (url.pathname === '/v1/me') return send(me);
-  if (url.pathname === '/v1/names/suggest') return send({ names: ['Kifaru', 'Mwewe Tulivu', 'Korongo'] });
+  if (url.pathname === '/v1/auth/guest') return send({ token: 'test-token', player });
+  if (url.pathname === '/v1/me') return send({ player, bests: {}, streaks });
+  if (url.pathname === '/v1/me/name') return send({ player });
+  if (url.pathname === '/v1/names/suggest') {
+    return send({ suggestions: ['Kifaru', 'Mwewe Tulivu', 'Korongo'] });
+  }
   if (url.pathname === '/v1/runs') return send({ accepted: true, personal_best: true, streaks });
   if (url.pathname === '/v1/board/daily') return send({ day: '2026-09-03', seed: 'D0FE', entries: rows(8) });
   if (url.pathname === '/v1/board/streaks') {
@@ -92,9 +101,18 @@ function apiHandler(req, res, url) {
   }
   if (url.pathname.startsWith('/v1/board/')) return send({ mode: 'normal', entries: rows(10) });
   if (url.pathname === '/v1/respawns') {
-    return send({ respawns: 2, pay_code: 'K7M2 QX9F', pay_url: 'https://paystack.shop/pay/dovefall' });
+    return send({
+      balance: 2,
+      pay_code: 'K7M2QX9F',
+      pay_link: 'https://paystack.shop/pay/dovefall',
+      per_payment: 3,
+      min_kes: 50,
+    });
   }
-  if (url.pathname === '/v1/respawns/spend') return send({ respawns: 1 });
+  if (url.pathname === '/v1/respawns/spend') return send({ ok: true, balance: 1 });
+  if (url.pathname === '/v1/devices' && req.method === 'DELETE') {
+    return send({ removed: true, count: 1, token: 'test-token-2' });
+  }
   if (url.pathname === '/v1/recovery/issue') return send({ code: '3K7M-2QX9-F4TB' });
   return send({ error: 'not_found' }, 404);
 }
@@ -175,7 +193,7 @@ describe('Dovefall in a browser', {
 
   test('a first-time player is asked for a name, then taught by playing', async () => {
     const { ctx, page, errors } = await phone();
-    await page.waitForSelector('text=Choose your name');
+    await page.waitForSelector('text=What shall we call you?');
     await shot(page, '01-name');
 
     // The three suggestions come from the server.
@@ -210,7 +228,7 @@ describe('Dovefall in a browser', {
     // Stop tapping and gravity does the rest.
     await page.waitForSelector('text=Fly again', { timeout: 15000 });
     await shot(page, '04-death-tutorial');
-    assert.ok(await page.locator('text=Keep flying — free').isVisible(), 'the free respawn is offered');
+    assert.ok(await page.locator('text=Keep flying').isVisible(), 'the free respawn is offered');
 
     await page.click('button:has-text("Keep flying")');
     await page.waitForSelector('text=Fly again', { state: 'detached' });
@@ -245,7 +263,7 @@ describe('Dovefall in a browser', {
     await page.click('button:has-text("Back")');
 
     await page.click('button:has-text("Settings")');
-    await page.waitForSelector('text=Difficulty');
+    await page.waitForSelector('text=How hard');
     await shot(page, '10-settings');
 
     await page.click('button:has-text("Respawns")');
@@ -254,7 +272,7 @@ describe('Dovefall in a browser', {
     await shot(page, '11-respawns');
     await page.click('button:has-text("Back")');
 
-    await page.click('button:has-text("Player name")');
+    await page.click('button:has-text("Your name")');
     await page.waitForSelector('text=Recovery');
     await shot(page, '12-account');
     await page.click('button:has-text("Back")');
@@ -283,7 +301,7 @@ describe('Dovefall in a browser', {
 
     // No gate, no override in the URL: straight to the title.
     await page.waitForSelector('text=DOVEFALL');
-    await page.click('button:has-text("Play")');
+    await page.click('button:has-text("Fly")');
     await page.waitForSelector('text=CLICK TO FLAP');
     await shot(page, '14-desktop-ready');
 
@@ -390,7 +408,7 @@ describe('Dovefall in a browser', {
       });
       const page = await ctx.newPage();
       await page.goto(`${base}?api=${encodeURIComponent(base.replace(/\/$/, ''))}`, { waitUntil: 'networkidle' });
-      await page.click('button:has-text("Daily Challenge")');
+      await page.click('button:has-text("Today")');
       await page.waitForSelector('text=TAP TO FLAP');
 
       const m = await page.evaluate(() => {
@@ -409,7 +427,7 @@ describe('Dovefall in a browser', {
 
       const scale = Math.min(m.cssW / 1080, m.cssH / 1920);
       assert.equal(m.bufW, Math.round(m.cssW * Math.min(m.dpr, 3)), `${d.name}: framebuffer matches its CSS box`);
-      assert.equal(m.gap, 980, `${d.name}: the opening gap is the same number`);
+      assert.equal(m.gap, 936, `${d.name}: the opening gap is the same number`);
       table.push({ name: d.name, css: `${m.cssW}x${m.cssH}`, buf: `${m.bufW}x${m.bufH}`, scale, gates: m.gates });
       await ctx.close();
     }

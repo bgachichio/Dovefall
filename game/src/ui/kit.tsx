@@ -127,6 +127,26 @@ export function Field({ value, onChange, placeholder, maxLength = 24 }: {
   );
 }
 
+/**
+ * An outbound link, styled as a control rather than as prose.
+ *
+ * `rel="noreferrer"` as well as `noopener`: this game is served from a URL a
+ * player may well have been sent, and there is no reason to tell anyone's
+ * analytics where they came from.
+ */
+export const Link = ({ href, children }: { href: string; children: ReactNode }) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noopener noreferrer"
+    style={{ minHeight: 44 }}
+    className="inline-flex flex-1 items-center justify-center rounded-xl bg-slot-2 px-4
+               text-sm text-paper underline-offset-4 hover:underline"
+  >
+    {children}
+  </a>
+);
+
 /** A value to read and copy, never to edit. Wide spacing, because the whole
  *  point of a recovery code is transcribing it correctly. */
 export const Code = ({ children }: { children: ReactNode }) => (

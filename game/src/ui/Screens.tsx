@@ -3,9 +3,10 @@
 // nine files buys nothing but imports.
 
 import { useEffect, useState } from 'react';
-import { Button, Choice, Code, Field, Note, Screen, Section, Spinner, Stack, t } from './kit.tsx';
+import { Button, Choice, Code, Field, Link, Note, Screen, Section, Spinner, Stack, t } from './kit.tsx';
 import * as api from '../net/api.ts';
 import { load, save, setSetting, bestFor } from '../store.ts';
+import { applyChrome } from '../chrome.ts';
 import { SKINS, MODE_ORDER, VERSION, CHAPTERS } from '../engine/constants.ts';
 import { pad5 } from './Hud.tsx';
 
@@ -17,6 +18,7 @@ export function Title({ streak, onPlay, onDaily, go }: {
   go: (s: string) => void;
 }) {
   const s = load();
+  const kids = s.settings.mode === 'kids';
   return (
     <Screen>
       <div className="flex min-h-[70vh] flex-col justify-center">
@@ -25,27 +27,32 @@ export function Title({ streak, onPlay, onDaily, go }: {
 
         <div className="mb-7 flex justify-center gap-6 text-center">
           <Stat label={t('best')} value={pad5(bestFor(s.settings.mode))} />
-          <Stat label={t('streak')} value={`${streak.play}`} accent={streak.play > 1} />
+          {!kids && <Stat label={t('streak')} value={`${streak.play}`} accent={streak.play > 1} />}
           <Stat label={t('feathers')} value={`${s.feathers}`} />
         </div>
 
         <Stack>
           <Button primary onClick={onPlay}>{t('play')}</Button>
-          <Button onClick={onDaily}>{t('daily')}</Button>
-          <Button onClick={() => go('board')}>{t('leaderboard')}</Button>
+          {/* Kids mode is deliberately a shorter menu. A daily challenge you
+              cannot win, a board you never appear on, and an account screen are
+              three doors to nowhere for a six-year-old — so they are not there. */}
+          {!kids && <Button onClick={onDaily}>{t('daily')}</Button>}
+          {!kids && <Button onClick={() => go('board')}>{t('leaderboard')}</Button>}
           <div className="flex gap-2.5">
             <Button onClick={() => go('wardrobe')}>{t('wardrobe')}</Button>
             <Button onClick={() => go('settings')}>{t('settings')}</Button>
           </div>
         </Stack>
 
-        <div className="mt-6 text-center text-xs text-dim">
-          {s.name ? <>{s.name} <span className="text-dim/60">{s.tag}</span></> : 'Playing as a guest'}
-          {' · '}
-          <button type="button" className="underline underline-offset-2" onClick={() => go('account')}>
-            {t('account')}
-          </button>
-        </div>
+        {!kids && (
+          <div className="mt-6 text-center text-xs text-dim">
+            {s.name ? <>{s.name} <span className="text-dim/60">{s.tag}</span></> : t('guest')}
+            {' · '}
+            <button type="button" className="underline underline-offset-2" onClick={() => go('account')}>
+              {t('account')}
+            </button>
+          </div>
+        )}
       </div>
     </Screen>
   );
@@ -72,7 +79,15 @@ export function NameScreen({ onDone }: { onDone: (name: string) => void }) {
 
   const choose = async (name: string) => {
     setBusy(true);
-    try { await api.signInGuest(name); } catch { save({ name }); }
+    try {
+      // /v1/auth/guest only honours the name when it CREATES the account. Come
+      // back to this screen on a phone that already has one and the name would
+      // be quietly ignored, so say it a second time when it did not take.
+      await api.signInGuest(name);
+      if (load().name !== name) await api.setName(name);
+    } catch {
+      save({ name });
+    }
     setBusy(false);
     onDone(name);
   };
@@ -80,24 +95,24 @@ export function NameScreen({ onDone }: { onDone: (name: string) => void }) {
   return (
     <Screen title={t('choosename')}>
       <Note>
-        No email address, no password. Your name is how the board knows you, and
-        a four-character tag keeps it yours even if someone picks the same one.
+        No email, no password, nothing to forget. The four characters after your
+        name are yours alone, so it stays your name even if someone else picks it.
       </Note>
 
       <Section>{t('suggest')}</Section>
       {names === null ? <Spinner /> : (
         <Stack>
-          {names.length === 0 && <Note>Offline — type a name instead.</Note>}
+          {names.length === 0 && <Note>{t('offline')}</Note>}
           {names.map((n) => (
             <Button key={n} onClick={() => choose(n)} disabled={busy}>{n}</Button>
           ))}
         </Stack>
       )}
       <div className="mt-2.5">
-        <Button small onClick={suggest} disabled={busy}>Three more</Button>
+        <Button small onClick={suggest} disabled={busy}>{t('threemore')}</Button>
       </div>
 
-      <Section>{t('playername')}</Section>
+      <Section>{t('orname')}</Section>
       <Stack>
         <Field value={typed} onChange={setTyped} placeholder={t('playername')} />
         <Button primary disabled={typed.trim().length < 2 || busy} onClick={() => choose(typed.trim())}>
@@ -113,6 +128,9 @@ type BoardKind = 'all' | 'daily' | 'streaks';
 
 export function Leaderboard({ onBack }: { onBack: () => void }) {
   const s = load();
+  // Kids mode has no board on purpose, so show the one the player would climb
+  // if they wanted to. Asking the server for /board/kids would simply 404.
+  const boardMode = s.settings.mode === 'kids' ? 'normal' : s.settings.mode;
   const [kind, setKind] = useState<BoardKind>('all');
   const [rows, setRows] = useState<api.BoardEntry[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -120,11 +138,11 @@ export function Leaderboard({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     setRows(null);
     setErr(null);
-    const p = kind === 'all' ? api.board(s.settings.mode)
+    const p = kind === 'all' ? api.board(boardMode)
       : kind === 'daily' ? api.dailyBoard().then((r) => r.entries)
         : api.streakBoard();
-    p.then(setRows).catch(() => { setRows([]); setErr('No connection. Your scores are safe on this phone.'); });
-  }, [kind, s.settings.mode]);
+    p.then(setRows).catch(() => { setRows([]); setErr(t('nonet')); });
+  }, [kind, boardMode]);
 
   const mine = rows?.find((r) => r.name === s.name && r.tag === s.tag);
 
@@ -135,7 +153,7 @@ export function Leaderboard({ onBack }: { onBack: () => void }) {
         value={kind}
         onChange={setKind}
         options={[
-          { value: 'all', label: 'All time' },
+          { value: 'all', label: t('alltime') },
           { value: 'daily', label: t('daily') },
           { value: 'streaks', label: t('streak') },
         ]}
@@ -151,7 +169,7 @@ export function Leaderboard({ onBack }: { onBack: () => void }) {
             <>
               <div className="my-3 h-px bg-slot-2" />
               <Row
-                r={{ rank: 0, name: s.name || 'You', tag: s.tag, score: bestFor(s.settings.mode) }}
+                r={{ rank: 0, name: s.name || t('you'), tag: s.tag, score: bestFor(boardMode) }}
                 me
               />
             </>
@@ -181,7 +199,7 @@ function Row({ r, me }: { r: api.BoardEntry; me: boolean }) {
 
 // ------------------------------------------------------------- respawns
 export function Respawns({ onBack }: { onBack: () => void }) {
-  const [info, setInfo] = useState<{ respawns: number; pay_code: string; pay_url: string } | null>(null);
+  const [info, setInfo] = useState<api.RespawnInfo | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const refresh = () => { api.respawns().then(setInfo).catch(() => setMsg('No connection.')); };
@@ -193,40 +211,47 @@ export function Respawns({ onBack }: { onBack: () => void }) {
         ♥ {info?.respawns ?? 0}
       </div>
       <Note>
-        A respawn puts you back in the sky where you fell, with the way ahead
-        cleared. Three for one payment. A continued run earns feathers and can
-        set your own best — it never enters the leaderboard, so nothing here
-        buys rank.
+        A heart puts you back in the sky exactly where you fell, with the way
+        ahead swept clear. {info ? `${info.perPayment} of them` : 'Three'} for
+        one payment.
+      </Note>
+      <Note>
+        A run you continue still earns feathers and can still beat your own
+        best. It never enters the leaderboard. Nothing here buys rank, and
+        nothing here ever will.
       </Note>
 
       <Section>{t('getrespawns')}</Section>
       <Note>
-        Pay any amount over KES 50 with the button below, then put this code in
-        the payment note so we know it was you.
+        Pay {info ? `KES ${info.minKes}` : 'KES 50'} or more, and put this code
+        in the payment note — it is the only way we know the payment was yours.
       </Note>
-      <Code>{info?.pay_code ?? '····  ····'}</Code>
+      <Code>{info?.payCode ?? '····  ····'}</Code>
       <div className="mt-2.5">
         <Stack>
           <Button
             small
-            onClick={() => info && navigator.clipboard?.writeText(info.pay_code).then(
+            onClick={() => info && navigator.clipboard?.writeText(info.payCode).then(
               () => setMsg('Code copied'), () => setMsg(null),
             )}
           >
             {t('copycode')}
           </Button>
-          <Button primary onClick={() => info && window.open(info.pay_url, '_blank', 'noopener')}>
-            {t('paynow')}
-          </Button>
-          <Button onClick={() => { setMsg('Checking…'); refresh(); setTimeout(() => setMsg(null), 2000); }}>
+          {info?.payUrl && (
+            <Button primary onClick={() => window.open(info.payUrl!, '_blank', 'noopener')}>
+              {t('paynow')}
+            </Button>
+          )}
+          <Button onClick={() => { setMsg('Looking…'); refresh(); setTimeout(() => setMsg(null), 2000); }}>
             {t('ihavepaid')}
           </Button>
         </Stack>
       </div>
       {msg && <Note>{msg}</Note>}
       <Note>
-        Payments are confirmed by Paystack, not by this screen. If it has not
-        landed within a minute, tap “{t('ihavepaid')}” again — nothing is lost.
+        Paystack confirms the payment, not this screen. If your hearts have not
+        appeared within a minute, tap “{t('ihavepaid')}” again. Nothing is lost
+        in the meantime.
       </Note>
     </Screen>
   );
@@ -238,6 +263,10 @@ export function Settings({ onBack, go }: { onBack: () => void; go: (s: string) =
   const s = load();
   const set = <K extends keyof typeof s.settings>(k: K, v: (typeof s.settings)[K]) => {
     setSetting(k, v);
+    // Theme and text size live on the document, not in React's tree, so a
+    // re-render alone changes nothing you can see. This is why tapping "XL"
+    // used to do nothing until you left the screen and came back.
+    applyChrome();
     bump((n) => n + 1);
   };
 
@@ -245,8 +274,6 @@ export function Settings({ onBack, go }: { onBack: () => void; go: (s: string) =
     <Screen title={t('settings')} onBack={onBack}>
       <Section>{t('audio')}</Section>
       <Stack>
-        <Choice label={t('music')} value={s.settings.music} onChange={(v) => set('music', v)}
-          options={[{ value: 0, label: t('off') }, { value: 1, label: t('low') }, { value: 2, label: t('full') }]} />
         <Choice label={t('sfx')} value={s.settings.sfx ? 1 : 0} onChange={(v) => set('sfx', v === 1)}
           options={[{ value: 0, label: t('off') }, { value: 1, label: t('on') }]} />
         <Choice label={t('haptics')} value={s.settings.haptics ? 1 : 0} onChange={(v) => set('haptics', v === 1)}
@@ -269,6 +296,12 @@ export function Settings({ onBack, go }: { onBack: () => void; go: (s: string) =
       <Stack>
         <Choice label={t('difficulty')} value={s.settings.mode} onChange={(v) => set('mode', v)}
           options={MODE_ORDER.map((m) => ({ value: m, label: t(m) }))} />
+        {s.settings.mode === 'kids' && (
+          <Note>
+            Kids: no spikes, nothing to dodge, and the sky never speeds up.
+            Hearts are free and endless. Scores stay on this phone.
+          </Note>
+        )}
         <Choice label={t('lefthand')} value={s.settings.lefthand ? 1 : 0} onChange={(v) => set('lefthand', v === 1)}
           options={[{ value: 0, label: t('off') }, { value: 1, label: t('on') }]} />
         <Choice label={t('language')} value={s.settings.lang} onChange={(v) => set('lang', v)}
@@ -304,17 +337,17 @@ export function Account({ onBack }: { onBack: () => void }) {
       <Stack>
         <Field value={name} onChange={setName} placeholder={t('playername')} />
         <Button primary onClick={() => api.setName(name.trim())
-          .then((r) => { save({ name: r.name, tag: r.tag }); setMsg('Saved'); })
-          .catch(() => setMsg('No connection — saved on this phone.'))}>
+          .then((m) => { setName(m.name); setMsg(t('saved')); })
+          .catch(() => { save({ name: name.trim() }); setMsg('No connection — saved on this phone for now.'); })}>
           {t('savename')}
         </Button>
       </Stack>
-      {s.tag && <Note>Your tag is {s.tag}. It never changes, even if your name does.</Note>}
+      {s.tag && <Note>Your tag is {s.tag}. Change your name as often as you like — the tag is yours for good.</Note>}
 
       <Section>{t('recovery')}</Section>
       <Note>
-        Write this code down. It is the only way to get your name and your
-        scores back on a new phone, and it is shown once.
+        Write this one down somewhere real. It is shown once, it works once, and
+        it is the only way back to your name and your scores on a new phone.
       </Note>
       {code && <Code>{code}</Code>}
       <div className="mt-2.5">
@@ -323,20 +356,22 @@ export function Account({ onBack }: { onBack: () => void }) {
         </Button>
       </div>
 
-      <Section>Moving to a new phone?</Section>
+      <Section>New phone?</Section>
       <Stack>
         <Field value={entered} onChange={setEntered} placeholder={t('entercode')} maxLength={19} />
         <Button onClick={() => api.claimRecovery(entered.trim())
-          .then((r) => { setName(r.name); setMsg('Restored.'); })
-          .catch(() => setMsg('That code was not recognised.'))}>
+          .then((m) => { setName(m.name); setMsg('Restored.'); })
+          .catch(() => setMsg('That code is not one of ours — or it has already been used.'))}>
           {t('restoreacct')}
         </Button>
       </Stack>
 
-      <Section>Devices</Section>
-      <Note>You can be signed in on two phones. Signing out here signs out the other one.</Note>
-      <Button onClick={() => api.signOutOthers().then(() => setMsg('Other devices signed out.')).catch(() => setMsg('No connection.'))}>
-        Sign out my other device
+      <Section>Phones</Section>
+      <Note>Two phones at a time. This signs out the other one and leaves you flying.</Note>
+      <Button onClick={() => api.signOutOthers()
+        .then((r) => setMsg(r.removed ? 'Done — this is the only phone now.' : 'Nothing to do: this is your only phone.'))
+        .catch(() => setMsg('No connection.'))}>
+        Sign out my other phone
       </Button>
 
       {msg && <Note>{msg}</Note>}
@@ -350,7 +385,7 @@ export function Wardrobe({ onBack }: { onBack: () => void }) {
   const s = load();
   return (
     <Screen title={t('wardrobe')} onBack={onBack}>
-      <Note>{t('feathers')}: {s.feathers}</Note>
+      <Note>{s.feathers} {t('feathers').toLowerCase()} in the bank. Fly further, earn more.</Note>
       <div className="mt-3 flex flex-col gap-2.5">
         {SKINS.map((k) => {
           const owned = s.owned.includes(k.id) || k.cost === 0;
@@ -394,13 +429,17 @@ export function Credits({ onBack }: { onBack: () => void }) {
       <Section>{t('madeby')}</Section>
       <div className="rounded-2xl bg-slot px-5 py-4">
         <div className="text-lg">Brian Gachichio Karanja</div>
-        <div className="text-sm text-dim">Design, code and art · Nairobi</div>
+        <div className="text-sm text-dim">Strategy and transformation · Nairobi</div>
+        <div className="mt-3 flex gap-2.5">
+          <Link href="https://x.com/bgachichio">X</Link>
+          <Link href="https://gachichio.org">gachichio.org</Link>
+        </div>
       </div>
 
       <Section>{t('chapters')}</Section>
       <Note>
-        Four chapters, each a place in the book of Jonah. Referenced, never
-        quoted.
+        The sky changes four times, and each one is a place in the book of
+        Jonah. Referenced, never quoted.
       </Note>
       <div className="flex flex-col gap-2">
         {CHAPTERS.map((c) => (
@@ -414,12 +453,15 @@ export function Credits({ onBack }: { onBack: () => void }) {
 
       <Section>{t('builtwith')}</Section>
       <Note>
-        A canvas, about six hundred lines of TypeScript, and Cloudflare's free
-        plan. No game engine, no download, no app store.
+        One canvas, a few hundred lines of TypeScript, and Cloudflare's free
+        plan. No engine, no download, no app store, no advertising. The whole
+        game is smaller than a photograph.
       </Note>
 
       <Section>{t('website')}</Section>
-      <Note>gachichio.org</Note>
+      <Stack>
+        <Link href="https://gachichio.org">gachichio.org</Link>
+      </Stack>
       <Note>{t('version')} {VERSION}</Note>
     </Screen>
   );
@@ -430,12 +472,15 @@ export function Pause({ onResume, onQuit, go }: {
   onResume: () => void; onQuit: () => void; go: (s: string) => void;
 }) {
   return (
-    <div className="absolute inset-0 grid place-items-center bg-ink/80 backdrop-blur-sm px-5">
+    <div
+      className="absolute inset-0 grid place-items-center backdrop-blur-sm px-5"
+      style={{ background: 'var(--scrim)' }}
+    >
       <div className="w-full max-w-md">
         <Stack>
-          <Button primary onClick={onResume}>Resume</Button>
+          <Button primary onClick={onResume}>{t('resume')}</Button>
           <Button onClick={() => go('settings')}>{t('settings')}</Button>
-          <Button onClick={onQuit}>{t('back')}</Button>
+          <Button onClick={onQuit}>{t('quit')}</Button>
         </Stack>
       </div>
     </div>

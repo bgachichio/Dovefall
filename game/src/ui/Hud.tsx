@@ -8,9 +8,8 @@
 // where your eye already is, the best score opposite it, a badge when you are
 // on the board, and one line of context in the middle when something changes.
 
-import { useEffect, useState } from 'react';
-import { CHAPTERS } from '../engine/constants.ts';
-import { chapterIndex, type Sim } from '../engine/sim.ts';
+import { type Sim } from '../engine/sim.ts';
+import { load } from '../store.ts';
 import { t } from './kit.tsx';
 
 export const pad5 = (n: number) => String(Math.max(0, n)).padStart(5, '0');
@@ -34,16 +33,14 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
   onMute: () => void;
   onPause: () => void;
 }) {
-  const chapter = CHAPTERS[chapterIndex(score)];
-  const [banner, setBanner] = useState<string | null>(null);
+  // The chapter banner is gone. It named the place you were flying through in
+  // the middle of the only moment that needs your eyes, and the place is
+  // already unmistakable — the whole sky changes colour. The chapters still
+  // exist, and are still listed in Credits where there is time to read them.
 
-  // One line of context when the chapter turns, then it gets out of the way.
-  useEffect(() => {
-    if (!sim || sim.phase !== 'play') return;
-    setBanner(`${chapter.name} · ${chapter.ref}`);
-    const id = setTimeout(() => setBanner(null), 2600);
-    return () => clearTimeout(id);
-  }, [chapter.name, chapter.ref, sim, sim?.palTo]);
+  // Left-handed HUD: the score and mute move right, the pause button left, so
+  // the controls sit under the thumb that is holding the phone.
+  const lefty = load().settings.lefthand;
 
   const hazardNear = Boolean(
     sim && sim.phase === 'play'
@@ -53,7 +50,7 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
   return (
     <div className="pointer-events-none absolute inset-0 select-none
                     pt-[max(0.6rem,env(safe-area-inset-top))]">
-      <div className="flex items-start justify-between px-3">
+      <div className={`flex items-start justify-between px-3 ${lefty ? 'flex-row-reverse' : ''}`}>
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -97,21 +94,12 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
         </div>
       )}
 
-      {banner && (
-        <div className="mt-3 flex justify-center">
-          <span className="rounded-md border-2 border-ink bg-paper px-3 py-1.5
-                           font-display text-[11px] font-bold tracking-widest text-ink">
-            {banner}
-          </span>
-        </div>
-      )}
-
       {sim?.phase === 'ready' && (
         <div className="absolute inset-x-0 bottom-[18%] text-center">
           <div className="font-display text-lg font-bold tracking-widest drop-shadow-[0_2px_0_rgba(0,0,0,.6)]">
-            {touchFirst() ? 'TAP TO FLAP' : 'CLICK TO FLAP'}
+            {touchFirst() ? t('tapflap') : t('clickflap')}
           </div>
-          <div className="mt-1 text-xs text-paper/60">or press space</div>
+          <div className="mt-1 text-xs text-paper/60">{touchFirst() ? '' : t('orspace')}</div>
         </div>
       )}
 
@@ -119,7 +107,7 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
         <div className="absolute inset-x-0 bottom-[12%] flex justify-center px-6">
           <span className="rounded-md border-2 border-ink bg-gold px-3 py-2 text-center
                            font-display text-[11px] font-bold tracking-widest text-ink">
-            HAZARD AHEAD · CHANGE ALTITUDE
+            {t('hazard')}
           </span>
         </div>
       )}
