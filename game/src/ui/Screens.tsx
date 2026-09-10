@@ -2,7 +2,7 @@
 // controls in a scroll view — and splitting nine near-identical screens across
 // nine files buys nothing but imports.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Choice, Code, Field, Link, Note, Screen, Section, Spinner, Stack, t } from './kit.tsx';
 import * as api from '../net/api.ts';
 import { load, save, setSetting, bestFor } from '../store.ts';
@@ -198,18 +198,84 @@ function Row({ r, me }: { r: api.BoardEntry; me: boolean }) {
 }
 
 // ------------------------------------------------------------- respawns
+// How long we keep checking after a tap on "Pay with Paystack", and how
+// often. Paystack's webhook typically lands in seconds; this window is
+// generous padding around that, not a guess at their SLA. Cleared the moment
+// a credit is seen, the moment the player leaves the screen, or the moment
+// the window runs out — never left running in the background forever.
+const POLL_WINDOW_MS = 3 * 60_000;
+const POLL_EVERY_MS = 4_000;
+
 export function Respawns({ onBack }: { onBack: () => void }) {
   const [info, setInfo] = useState<api.RespawnInfo | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [credited, setCredited] = useState<number | null>(null);
 
-  const refresh = () => { api.respawns().then(setInfo).catch(() => setMsg('No connection.')); };
-  useEffect(refresh, []);
+  // What the balance was the moment the player went to pay, and the timers
+  // doing the watching. Refs, not state — a running interval must read the
+  // CURRENT baseline on its next tick, not the one captured when it started.
+  const baseline = useRef<number | null>(null);
+  const pollId = useRef<number | null>(null);
+  const windowId = useRef<number | null>(null);
+
+  const refresh = () => api.respawns().then(setInfo).catch(() => { setMsg('No connection.'); return null; });
+  useEffect(() => { refresh(); }, []);
+
+  const stopWatching = () => {
+    if (pollId.current != null) { clearInterval(pollId.current); pollId.current = null; }
+    if (windowId.current != null) { clearTimeout(windowId.current); windowId.current = null; }
+    setChecking(false);
+  };
+
+  // Fire on every check, whoever asked for it: the interval, a regained tab,
+  // or a manual "I have paid" tap. The FIRST thing to notice a rise in
+  // balance wins, and everyone else's next tick finds nothing left to do.
+  const checkOnce = async () => {
+    const r = await api.respawns().catch(() => null);
+    if (!r) return;
+    setInfo(r);
+    if (baseline.current != null && r.respawns > baseline.current) {
+      setCredited(r.respawns - baseline.current);
+      stopWatching();
+    }
+  };
+
+  const startWatching = () => {
+    stopWatching();
+    baseline.current = info?.respawns ?? 0;
+    setCredited(null);
+    setChecking(true);
+    pollId.current = window.setInterval(checkOnce, POLL_EVERY_MS);
+    windowId.current = window.setTimeout(stopWatching, POLL_WINDOW_MS);
+  };
+
+  // The player almost never watches the payment tab — they pay, then switch
+  // straight back here. Checking the instant this tab regains focus is what
+  // makes the credit land before they have time to wonder whether it worked,
+  // rather than waiting out the rest of a 4-second interval.
+  useEffect(() => {
+    const onFocus = () => { if (pollId.current != null) checkOnce(); };
+    document.addEventListener('visibilitychange', onFocus);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onFocus);
+      window.removeEventListener('focus', onFocus);
+      stopWatching();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Screen title={t('respawns')} onBack={onBack}>
       <div className="mb-2 text-center font-display text-5xl font-bold text-gold">
         ♥ {info?.respawns ?? 0}
       </div>
+      {credited != null && (
+        <div className="mb-3 rounded-xl bg-gold/15 px-4 py-2.5 text-center text-sm font-medium text-gold ring-1 ring-gold/40">
+          +{credited} credited
+        </div>
+      )}
       <Note>
         A heart puts you back in the sky exactly where you fell, with the way
         ahead swept clear. {info ? `${info.perPayment} of them` : 'Three'} for
@@ -238,20 +304,33 @@ export function Respawns({ onBack }: { onBack: () => void }) {
             {t('copycode')}
           </Button>
           {info?.payUrl && (
-            <Button primary onClick={() => window.open(info.payUrl!, '_blank', 'noopener')}>
+            <Button
+              primary
+              onClick={() => {
+                window.open(info.payUrl!, '_blank', 'noopener');
+                startWatching();
+              }}
+            >
               {t('paynow')}
             </Button>
           )}
-          <Button onClick={() => { setMsg('Looking…'); refresh(); setTimeout(() => setMsg(null), 2000); }}>
+          <Button
+            onClick={() => {
+              setMsg('Looking…');
+              baseline.current = info?.respawns ?? 0;
+              checkOnce().finally(() => setMsg(null));
+            }}
+          >
             {t('ihavepaid')}
           </Button>
         </Stack>
       </div>
       {msg && <Note>{msg}</Note>}
       <Note>
-        Paystack confirms the payment, not this screen. If your hearts have not
-        appeared within a minute, tap “{t('ihavepaid')}” again. Nothing is lost
-        in the meantime.
+        {checking
+          ? 'Watching for it — come back to this tab once you have paid and it should appear in a few seconds.'
+          : <>Paystack confirms the payment, not this screen. If your hearts have not
+              appeared, tap “{t('ihavepaid')}” — nothing is lost in the meantime.</>}
       </Note>
     </Screen>
   );
