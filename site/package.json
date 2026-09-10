@@ -11,9 +11,12 @@
     "preview": "wrangler dev"
   },
   "devDependencies": {
-    "wrangler": "4.128.0"
+    "wrangler": "4.130.0"
   },
   "engines": {
     "node": ">=22.20.0"
+  },
+  "overrides": {
+    "sharp": "0.35.4"
   }
 }

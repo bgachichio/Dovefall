@@ -12,9 +12,12 @@
     "migrate:remote": "wrangler d1 execute dovefall --remote --file=schema/0001_init.sql && wrangler d1 execute dovefall --remote --file=schema/0002_identity.sql && wrangler d1 execute dovefall --remote --file=schema/0003_respawns.sql && wrangler d1 execute dovefall --remote --file=schema/0004_devices.sql"
   },
   "devDependencies": {
-    "wrangler": "4.128.0"
+    "wrangler": "4.130.0"
   },
   "engines": {
     "node": ">=22.20.0"
+  },
+  "overrides": {
+    "sharp": "0.35.4"
   }
 }
