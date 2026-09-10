@@ -582,7 +582,7 @@ npx wrangler d1 execute dovefall --remote --command \
 npx wrangler d1 migrations apply dovefall --remote
 ```
 
-**Not zero** — stop and take a backup (§11) first. The alternative is
+**Not zero** — stop and take a backup (§10) first. The alternative is
 hand-inserting the missing rows into `d1_migrations`, which leaves you trusting
 that the schema matches the files instead of knowing it.
 
@@ -590,6 +590,48 @@ that the schema matches the files instead of knowing it.
 Check the Paystack dashboard for a delivered webhook. The endpoint verifies an
 HMAC-SHA512 signature, so a wrong `PAYSTACK_SECRET_KEY` shows as a delivered
 webhook with a 401. Fix the secret and use Paystack's "resend" button.
+
+---
+
+## 10 · Backup and restore
+
+Two mechanisms, for two different failures. Neither has been drilled yet —
+this database is days old — so treat both as **untested until the first real
+run**, and log that run's date here once it happens.
+
+**Time Travel — the platform's own safety net, no setup required.** Every D1
+database keeps a 30-day rolling history of every write. It is not a backup you
+manage; it exists whether or not this section did.
+
+```bash
+# What the database looked like at a timestamp or a specific point
+npx wrangler d1 time-travel info dovefall --remote
+
+# Roll the WHOLE database back to just before a bad migration or a bad query.
+# This is a full restore, not a per-row undo — everything written after the
+# bookmark is gone.
+npx wrangler d1 time-travel restore dovefall --remote --timestamp=<ISO-8601>
+```
+
+**A manual export — before anything destructive.** Every step in §9 that says
+"stop and take a backup first" means this:
+
+```bash
+npx wrangler d1 export dovefall --remote --output="dovefall-$(date +%Y%m%d-%H%M%S).sql"
+```
+
+That file is a full SQL dump — schema and every row, players' names and
+recovery-code hashes included. Treat it exactly like the database itself: not
+committed, not emailed, deleted once the operation it was insurance for has
+been confirmed safe.
+
+**The drill.** Time Travel needs no drill — Cloudflare runs it. The export
+does: run the command above once, confirm the file is non-empty and contains
+`INSERT INTO players`, delete it, and write the date here.
+
+```
+Last export drill: (none yet — first live drill still owed)
+```
 
 ---
 
