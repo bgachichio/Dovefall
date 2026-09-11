@@ -321,6 +321,96 @@ describe('Dovefall in a browser', {
     await ctx.close();
   });
 
+  test('a "you" row off the leaderboard never shows the wrong board\'s number', async () => {
+    // A page-local mock, not the shared one: App boots offline-token and
+    // signs in as a guest, and the shared stand-in always hands that guest
+    // back as "Kifaru" — who then sits IN its board rows, which would hide
+    // the exact case this test exists for. Routing just this page's /v1/*
+    // calls fixes the identity AND the rows it must be absent from, without
+    // touching what every other test in this file relies on.
+    const ctx = await browser.newContext(PHONE);
+    await ctx.route('**/v1/**', (route) => {
+      const url = new URL(route.request().url());
+      const send = (body) => route.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify(body),
+      });
+      const me = { id: 'p_absent', name: 'Zzz Test Player', tag: '0000', respawns: 0, guest: true };
+      const others = (n, extra = {}) => Array.from({ length: n }, (_, i) => ({
+        rank: i + 1,
+        name: ['Kifaru', 'Ndege', 'Simba', 'Tausi'][i % 4],
+        tag: ['4T7X', '9QM2', 'B3KD', 'X7F1'][i % 4],
+        score: 480 - i * 37,
+        at: 1756800000 - i * 3600,
+        ...extra,
+      }));
+      if (url.pathname === '/v1/auth/guest' || url.pathname === '/v1/me') {
+        return send({ token: 'test-token', player: me });
+      }
+      if (url.pathname.startsWith('/v1/board/daily')) {
+        return send({ day: '2026-09-03', seed: 'D0FE', entries: others(6) });
+      }
+      if (url.pathname.startsWith('/v1/board/streaks')) {
+        return send({ entries: others(6).map((r, i) => ({ ...r, score: 20 - i, current: 8 - i })) });
+      }
+      if (url.pathname.startsWith('/v1/board/')) return send({ mode: 'normal', entries: others(10) });
+      return send({});
+    });
+    await ctx.addInitScript(() => {
+      localStorage.setItem('dovefall.v1', JSON.stringify({
+        rev: 1, installId: '77777777-7777-7777-7777-777777777777',
+        bests: { normal: 123 }, feathers: 0, owned: ['dove'], tutorialDone: true,
+        name: '', tag: '', token: '', respawns: 0,
+      }));
+    });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?api=${encodeURIComponent(base.replace(/\/$/, ''))}`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=DOVEFALL');
+    // Let the boot sign-in land — App's own effect saves name/tag from it —
+    // before reading s.name/s.tag by opening the Leaderboard.
+    await page.waitForFunction(() => {
+      try { return JSON.parse(localStorage.getItem('dovefall.v1')).name === 'Zzz Test Player'; }
+      catch { return false; }
+    });
+    await page.click('button:has-text("Leaderboard")');
+
+    // All time: bestFor('normal') IS exactly what this board ranks by, so a
+    // player missing from the visible rows still gets an honest "you" row.
+    await page.waitForSelector('text=All time');
+    await page.waitForSelector('text=Zzz Test Player', { timeout: 5000 });
+    assert.ok(
+      await page.locator('text=00123').count() > 0,
+      'the all-time "you" row does not show the local best it actually ranks by',
+    );
+
+    // Today's Sky (daily): this save has no local number for "today", so
+    // there must be no fabricated "you" row putting an all-time score under
+    // today's board.
+    await page.click('button:has-text("Today\'s Sky")');
+    await page.waitForTimeout(300);
+    assert.equal(
+      await page.locator('text=Zzz Test Player').count(), 0,
+      'the daily board invented a "you" row from an unrelated local number',
+    );
+
+    // Streaks: same bug, worse shape — an all-time flight score rendered in
+    // the best/current streak column, indistinguishable from a real streak.
+    await page.click('button:has-text("Streak")');
+    await page.waitForTimeout(300);
+    assert.equal(
+      await page.locator('text=Zzz Test Player').count(), 0,
+      'the streaks board invented a "you" row from an unrelated local number',
+    );
+    assert.equal(
+      await page.locator('text=00123').count(), 0,
+      'the all-time score leaked into the streaks board in any form',
+    );
+
+    assert.deepEqual(errors, [], 'no console errors across every board tab');
+    await ctx.close();
+  });
+
   test('a desktop visitor plays the game, with a mouse and with the keyboard', async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
     await ctx.addInitScript(() => {

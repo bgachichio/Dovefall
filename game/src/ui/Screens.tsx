@@ -165,7 +165,14 @@ export function Leaderboard({ onBack }: { onBack: () => void }) {
           {rows.map((r) => (
             <Row key={`${r.rank}-${r.tag}`} r={r} me={r.name === s.name && r.tag === s.tag} />
           ))}
-          {rows.length > 0 && !mine && (
+          {/* Only the all-time board has a local number that is honestly the
+              same stat as the rows above it — bestFor(boardMode) is exactly
+              what All time ranks by. The daily board ranks a score for ONE
+              day, and the streaks board ranks a best/current pair; this
+              screen keeps no local copy of either, and showing an all-time
+              flight score in their place — once literally in the streak
+              column — was a bug, not a fallback. */}
+          {kind === 'all' && rows.length > 0 && !mine && (
             <>
               <div className="my-3 h-px bg-slot-2" />
               <Row
