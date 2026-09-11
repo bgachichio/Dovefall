@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dovefall</title>
+<meta name="description" content="One touch. Storm, deep and sky. A free flying game for your phone — no download, no app store.">
+<meta name="theme-color" content="#0D1420">
+<link rel="icon" href="/dovefallgame/icon-192.png">
+
+<!--
+  The landing page for play.gachichio.org. Static, dependency-free, no build
+  step, no image files — matching this game's own rule that the art is code:
+  the dove is not a picture, it is the exact pixel data from
+  game/src/engine/constants.ts's DOVE_FRAMES[1], run-length-encoded into SVG
+  rects by a script. The gates drifting behind it are the same shape and the
+  same four chapter colours (CHAPTERS, same file) the real playfield cycles
+  through. The bird sits still and the world moves past it, left to right —
+  that is not a design choice made for this page, it is literally how the
+  game works: the bird's x is fixed and everything else scrolls.
+-->
+
+<style>
+  :root {
+    --ink: #0D1420;
+    --navy: #1F3864;
+    --copper: #B0642A;
+    --gold: #F0C07A;
+    --paper: #EEF4FF;
+    --dim: #9EB3D1;
+    --font-display: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; margin: 0; background: var(--ink); }
+
+  body {
+    color: var(--paper);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* The same four skies the game cross-fades through as a run progresses. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    animation: sky 28s ease-in-out infinite;
+  }
+  @keyframes sky {
+    0%, 4%    { background: radial-gradient(130% 100% at 50% -15%, #4E6A7A, #263644 65%, var(--ink)); }
+    25%       { background: radial-gradient(130% 100% at 50% -15%, #0F4152, #061F2A 65%, var(--ink)); }
+    50%       { background: radial-gradient(130% 100% at 50% -15%, #3E1E19, #1A0B0A 65%, var(--ink)); }
+    75%       { background: radial-gradient(130% 100% at 50% -15%, #F2A65A, #A85E1C 65%, var(--ink)); }
+    96%, 100% { background: radial-gradient(130% 100% at 50% -15%, #4E6A7A, #263644 65%, var(--ink)); }
+  }
+
+  .motes { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .5; }
+  .motes span {
+    position: absolute; width: 3px; height: 3px; border-radius: 50%;
+    background: var(--paper); opacity: .3; animation: drift linear infinite;
+  }
+  @keyframes drift { from { transform: translateY(0); } to { transform: translateY(-40px); } }
+
+  header {
+    padding: max(1.1rem, env(safe-area-inset-top)) 1.25rem 0;
+    display: flex; justify-content: center;
+  }
+  header span {
+    font-family: var(--font-display); font-weight: 700; font-size: .95rem;
+    letter-spacing: .12em; color: var(--dim);
+  }
+
+  /* ------------------------------------------------------- the flight strip
+     The playfield, restated. Gate pairs drift right to left forever; the
+     dove holds its ground in front of them, because in the real game it
+     always does. */
+  .strip {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 34vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .gate { position: absolute; top: 0; bottom: 0; width: 46px; animation: pass linear infinite; }
+  .gate .bar {
+    position: absolute; left: 0; right: 0;
+    background: currentColor;
+    animation: gatecolor 28s ease-in-out infinite;
+    opacity: .5;
+  }
+  .gate .bar.top { top: 0; }
+  .gate .bar.bottom { bottom: 0; }
+  .gate.a { animation-duration: 13s; }
+  .gate.b { animation-duration: 13s; animation-delay: -4.3s; }
+  .gate.c { animation-duration: 13s; animation-delay: -8.6s; }
+  .gate.a .bar { top: 0; height: 30%; }
+  .gate.a .bar.bottom { top: auto; height: 42%; }
+  .gate.b .bar { height: 46%; }
+  .gate.b .bar.bottom { top: auto; height: 24%; }
+  .gate.c .bar { height: 22%; }
+  .gate.c .bar.bottom { top: auto; height: 50%; }
+  @keyframes pass { from { right: -8%; } to { right: 108%; } }
+  @keyframes gatecolor {
+    0%, 4%    { color: #93A7B3; }
+    25%       { color: #2A8A76; }
+    50%       { color: #9A5140; }
+    75%       { color: #D9A441; }
+    96%, 100% { color: #93A7B3; }
+  }
+
+  .dove {
+    position: relative;
+    z-index: 1;
+    width: min(38vw, 240px);
+    height: auto;
+    shape-rendering: crispEdges;
+    filter: drop-shadow(0 24px 34px rgba(0,0,0,.5));
+    animation: glide 3.2s ease-in-out infinite;
+  }
+  @keyframes glide {
+    0%, 100% { transform: translateY(0) rotate(-3deg); }
+    50%      { transform: translateY(-5.5vh) rotate(4deg); }
+  }
+
+  /* ----------------------------------------------------------- the message */
+  main {
+    position: relative;
+    z-index: 2;
+    padding: 0 1.5rem max(2rem, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  h1 {
+    margin: 0 0 .3rem;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(3rem, 15vw, 5rem);
+    letter-spacing: -0.01em;
+    line-height: .95;
+    text-shadow: 0 4px 0 rgba(0,0,0,.35);
+  }
+
+  .tagline { margin: 0; font-size: clamp(1.05rem, 3.4vw, 1.3rem); color: var(--paper); }
+  .sub { margin: .35rem 0 1.9rem; font-size: .95rem; color: var(--dim); }
+
+  .cta {
+    display: inline-flex; align-items: center; gap: .55rem;
+    min-height: 58px; padding: 0 2.5rem;
+    border-radius: 999px;
+    background: var(--copper); color: white;
+    font-size: 1.2rem; font-weight: 700;
+    text-decoration: none;
+    box-shadow: 0 12px 32px -8px rgba(176,100,42,.6);
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .cta:hover  { background: #c47339; transform: translateY(-2px); box-shadow: 0 16px 36px -8px rgba(176,100,42,.7); }
+  .cta:active { transform: translateY(0); }
+  .cta svg { width: 19px; height: 19px; }
+
+  .facts {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: .55rem;
+    margin: 1.6rem 0 0; padding: 0; list-style: none; max-width: 26rem;
+  }
+  .facts li {
+    font-size: .78rem; letter-spacing: .01em; color: var(--dim);
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.09);
+    border-radius: 999px; padding: .4rem .85rem; white-space: nowrap;
+  }
+
+  footer {
+    position: relative; z-index: 2;
+    padding: 0 1.25rem max(1rem, env(safe-area-inset-bottom));
+    display: flex; justify-content: center; gap: 1rem;
+    font-size: .76rem; color: var(--dim);
+  }
+  footer a { color: var(--dim); text-decoration: none; }
+  footer a:hover { color: var(--paper); text-decoration: underline; }
+
+  @media (prefers-reduced-motion: reduce) {
+    body::before, .dove, .gate, .motes span { animation: none !important; }
+    body::before { background: radial-gradient(130% 100% at 50% -15%, #0F4152, #061F2A 65%, var(--ink)); }
+    .gate { display: none; }
+  }
+
+  @media (max-height: 560px) {
+    .strip { min-height: 24vh; }
+    header { display: none; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="motes" aria-hidden="true"></div>
+
+  <header><span>DOVEFALL</span></header>
+
+  <div class="strip" aria-hidden="true">
+    <div class="gate a"><div class="bar top"></div><div class="bar bottom"></div></div>
+    <div class="gate b"><div class="bar top"></div><div class="bar bottom"></div></div>
+    <div class="gate c"><div class="bar top"></div><div class="bar bottom"></div></div>
+
+    <svg class="dove" viewBox="0 0 16 8" shape-rendering="crispEdges">
+      <rect x="4" y="0" width="6" height="1" fill="#2B3A4A"/>
+      <rect x="2" y="1" width="2" height="1" fill="#2B3A4A"/>
+      <rect x="4" y="1" width="6" height="1" fill="#FFFFFF"/>
+      <rect x="10" y="1" width="2" height="1" fill="#2B3A4A"/>
+      <rect x="1" y="2" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="2" y="2" width="11" height="1" fill="#FFFFFF"/>
+      <rect x="13" y="2" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="0" y="3" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="1" y="3" width="10" height="1" fill="#FFFFFF"/>
+      <rect x="11" y="3" width="2" height="1" fill="#1A2430"/>
+      <rect x="13" y="3" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="14" y="3" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="0" y="4" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="1" y="4" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="2" y="4" width="7" height="1" fill="#C2D2E0"/>
+      <rect x="9" y="4" width="5" height="1" fill="#FFFFFF"/>
+      <rect x="14" y="4" width="2" height="1" fill="#2B3A4A"/>
+      <rect x="1" y="5" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="2" y="5" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="3" y="5" width="7" height="1" fill="#C2D2E0"/>
+      <rect x="10" y="5" width="4" height="1" fill="#FFFFFF"/>
+      <rect x="14" y="5" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="15" y="5" width="1" height="1" fill="#F2A65A"/>
+      <rect x="2" y="6" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="3" y="6" width="2" height="1" fill="#FFFFFF"/>
+      <rect x="5" y="6" width="4" height="1" fill="#C2D2E0"/>
+      <rect x="9" y="6" width="5" height="1" fill="#FFFFFF"/>
+      <rect x="14" y="6" width="1" height="1" fill="#2B3A4A"/>
+      <rect x="15" y="6" width="1" height="1" fill="#F2A65A"/>
+      <rect x="3" y="7" width="2" height="1" fill="#2B3A4A"/>
+      <rect x="5" y="7" width="7" height="1" fill="#FFFFFF"/>
+      <rect x="12" y="7" width="2" height="1" fill="#2B3A4A"/>
+    </svg>
+  </div>
+
+  <main>
+    <h1>DOVEFALL</h1>
+    <p class="tagline">One touch. Storm, deep and sky.</p>
+    <p class="sub">A free flying game for your phone.</p>
+
+    <a class="cta" href="/dovefallgame/">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      Play now
+    </a>
+
+    <ul class="facts">
+      <li>No download</li>
+      <li>Works on any phone</li>
+      <li>About the size of a photo</li>
+    </ul>
+  </main>
+
+  <footer>
+    <span>Brian Gachichio Karanja</span>
+    <a href="https://gachichio.org" target="_blank" rel="noopener noreferrer">gachichio.org</a>
+    <a href="https://x.com/bgachichio" target="_blank" rel="noopener noreferrer">X</a>
+  </footer>
+
+  <script>
+    (function () {
+      var wrap = document.querySelector('.motes');
+      if (!wrap || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      for (var i = 0; i < 16; i++) {
+        var m = document.createElement('span');
+        m.style.left = Math.random() * 100 + '%';
+        m.style.top = Math.random() * 100 + '%';
+        m.style.animationDuration = (6 + Math.random() * 10).toFixed(1) + 's';
+        m.style.animationDelay = (-Math.random() * 10).toFixed(1) + 's';
+        wrap.appendChild(m);
+      }
+    })();
+  </script>
+</body>
+</html>
