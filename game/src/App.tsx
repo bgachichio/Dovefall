@@ -18,7 +18,7 @@ import { bestFor, load, recordRun, save, setSetting } from './store.ts';
 import { Hud, CountdownOverlay } from './ui/Hud.tsx';
 import { DeathPanel } from './ui/Death.tsx';
 import { Account, Credits, Leaderboard, NameScreen, Pause, Respawns, Settings, Title, Wardrobe } from './ui/Screens.tsx';
-import { buzz, gatePitch, play as playSound, setMuted } from './audio.ts';
+import { buzz, gatePitch, play as playSound } from './audio.ts';
 import { applyChrome, watchSystemTheme } from './chrome.ts';
 
 type Route = 'title' | 'name' | 'run' | 'board' | 'settings' | 'credits' | 'wardrobe' | 'account' | 'respawns';
@@ -306,17 +306,23 @@ export default function App() {
     if (stackRef.current.length > 8) stackRef.current.shift();
     routeRef.current = to as Route;
     setRoute(to as Route);
+    // The Settings screen writes sfx straight to the store, not to this
+    // component's state — resync on every navigation so the HUD's mute icon
+    // can never show a run left over from before a visit to Settings.
+    setMutedState(!load().settings.sfx);
   }, []);
   const back = useCallback(() => {
     const to = stackRef.current.pop() ?? 'title';
     routeRef.current = to;
     setRoute(to);
+    setMutedState(!load().settings.sfx);
   }, []);
   const backToTitle = () => {
     simRef.current = null;
     stackRef.current = [];
     routeRef.current = 'title';
     setRoute('title');
+    setMutedState(!load().settings.sfx);
   };
 
   const onRespawn = useCallback(() => {
@@ -358,7 +364,7 @@ export default function App() {
               streak={streaks.play}
               top10={top10}
               muted={muted}
-              onMute={() => { const m = !muted; setMutedState(m); setMuted(m); setSetting('sfx', !m); }}
+              onMute={() => { const m = !muted; setMutedState(m); setSetting('sfx', !m); }}
               onPause={doPause}
             />
           )}

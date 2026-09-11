@@ -12,10 +12,9 @@
 //   tap     tone 420 -> 420   35 ms   sine       0.26
 //   chapter arp  520 700 880 110 ms              0.30
 
-let ctx: AudioContext | null = null;
-let muted = false;
+import { load } from './store.ts';
 
-export const setMuted = (m: boolean) => { muted = m; };
+let ctx: AudioContext | null = null;
 
 interface Tone { from: number; to: number; ms: number; type: OscillatorType; gain: number }
 type Voice = { tone: Tone } | { arp: number[]; ms: number; gain: number };
@@ -52,7 +51,7 @@ function blip(from: number, to: number, ms: number, type: OscillatorType, gain: 
  *  is going somewhere. */
 export function play(event: string, pitch = 1): void {
   const voice = BANK[event];
-  if (!voice || muted) return;
+  if (!voice || !load().settings.sfx) return;
   try {
     ctx ??= new AudioContext();
     if (ctx.state === 'suspended') void ctx.resume();
@@ -68,9 +67,11 @@ export function play(event: string, pitch = 1): void {
   } catch { /* audio is a luxury; never let it break a run */ }
 }
 
-/** Sfx.buzz(). Godot used 12 ms on a flap, 8 on a gate and 20 on a death. */
+/** Sfx.buzz(). Godot used 12 ms on a flap, 8 on a gate and 20 on a death.
+ *  Gated on its own setting, not on sound — muting the beeps should not
+ *  silently mute the buzz, and the Settings screen offers them separately. */
 export function buzz(ms: number): void {
-  if (muted) return;
+  if (!load().settings.haptics) return;
   navigator.vibrate?.(ms);
 }
 
