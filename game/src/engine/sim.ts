@@ -15,7 +15,7 @@
 // smooth it looks and nothing else.
 
 import {
-  FIXED, TERMINAL_MULT, MODES, BANDS, RAMP, CHAPTERS,
+  FIXED, TERMINAL_MULT, MODES, BANDS, RAMP, CHAPTERS, CHAPTER_CYCLE_STEP,
   DOVE_W, DOVE_H, DOVE_DIVISOR, LANDMARK_GAP, PARTICLES,
   SW_MIN_SCORE, SW_MIN_SESSION_DEATHS, SW_CLEAR_AHEAD, SW_INVULN_S, SW_COUNTDOWN_S,
   CROSSFADE_S, RESTART_MS,
@@ -112,8 +112,27 @@ const KIDS_RAMP = {
 export const isKids = (mode: string): boolean => mode === 'kids';
 
 export const rampForSim = (s: Sim) => (isKids(s.mode) ? KIDS_RAMP : rampFor(s.score));
-export const chapterIndex = (score: number) =>
-  CHAPTERS.reduce((r, c, i) => (score >= c.from ? i : r), 0);
+/**
+ * Which scene is showing, forever.
+ *
+ * Below the last defined threshold this is the same linear scan it always
+ * was — CHAPTERS[i].from <= score, take the highest i. At or past the last
+ * one, it advances by one scene every CHAPTER_CYCLE_STEP points and wraps
+ * back to scene 0, so a run that outlives the roster does not sit on the
+ * final scene forever; it keeps moving, through scenes it has already seen
+ * and, eventually, seen again. The two branches agree exactly at the
+ * boundary — score === last.from returns the last index either way — so
+ * there is no seam where the sky jumps rather than fades.
+ */
+export const chapterIndex = (score: number): number => {
+  const n = CHAPTERS.length;
+  const last = CHAPTERS[n - 1];
+  if (score < last.from) {
+    return CHAPTERS.reduce((r, c, i) => (score >= c.from ? i : r), 0);
+  }
+  const scenesPast = Math.floor((score - last.from) / CHAPTER_CYCLE_STEP);
+  return (n - 1 + scenesPast) % n;
+};
 
 // ------------------------------------------------------------ derived sizes
 export const dsize = () => Math.max(2, Math.round(VW / DOVE_DIVISOR));

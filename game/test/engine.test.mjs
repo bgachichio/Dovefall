@@ -107,6 +107,37 @@ test('the difficulty tables step where they are supposed to', () => {
   assert.equal(chapterIndex(30), 3);
 });
 
+test('the scenery never stops — it cycles the whole roster forever', () => {
+  // Ten scenes now, the last starting at 145 (see CHAPTERS' own header for
+  // why). Every threshold in between still resolves by the same linear scan
+  // as the original four.
+  assert.equal(chapterIndex(44), 3);   // still Nineveh, one point short
+  assert.equal(chapterIndex(45), 4);
+  assert.equal(chapterIndex(105), 7);
+  assert.equal(chapterIndex(144), 8);
+  assert.equal(chapterIndex(145), 9);  // the last defined scene
+
+  // Past the last one, it advances every CHAPTER_CYCLE_STEP (20) points and
+  // wraps — the seam has to be exact, or the sky jumps instead of fading.
+  assert.equal(chapterIndex(164), 9, 'holds the last scene until the step is full');
+  assert.equal(chapterIndex(165), 0, 'wraps to the first scene, not undefined');
+  assert.equal(chapterIndex(184), 0);
+  assert.equal(chapterIndex(185), 1);
+
+  // A player who plays long enough sees the exact same scene again — that
+  // is the promise, not a bug. One full lap of ten scenes at 20 points each
+  // is 200 points after the wrap begins.
+  assert.equal(chapterIndex(145), chapterIndex(145 + 200));
+  assert.equal(chapterIndex(200), chapterIndex(200 + 200));
+
+  // No score, however large, resolves to a scene that does not exist —
+  // the one failure mode that would actually be visible as a broken sky.
+  for (let score = 0; score <= 5000; score += 37) {
+    const i = chapterIndex(score);
+    assert.ok(i >= 0 && i < 10, `chapterIndex(${score}) = ${i}, out of range`);
+  }
+});
+
 test('a harder mode is harder in every direction', () => {
   const easy = MODES.easy;
   const pro = MODES.pro;

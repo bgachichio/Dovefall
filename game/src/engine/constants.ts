@@ -102,20 +102,64 @@ export const RAMP = [
 	{"from": 50, "amp": 1.00, "delta": 1.00, "ground": true,  "air": true,  "drift": true,  "dens": 0.52},
 ] as const;
 
+/**
+ * The scenery. Ten scenes, cycling forever.
+ *
+ * This used to be four fixed chapters, each named for a place in the book of
+ * Jonah and shown to the player as a citation — "The Storm · Jonah 1:4" — in
+ * Credits. The verse references never earned their place there: a player
+ * asked whether they added anything, and once asked, the honest answer was
+ * no. What DOES earn its place is what those four chapters actually
+ * produced on screen — the sky, the ground and the obstacles changing
+ * colour as a run goes on — and that is the part this keeps and grows.
+ *
+ * The first four entries are unchanged from the original four chapters, so
+ * an existing run's early pacing (chapterIndex(0|5|15|30), tested in
+ * engine.test.mjs) is untouched. Six more scenes follow, then the whole
+ * roster of ten repeats forever — see chapterIndex() in sim.ts. A long run
+ * never runs out of new sky to fly through; it also never runs out of OLD
+ * sky, because scene 11 is scene 1 again. `kind` picks which hazard/gate/
+ * landmark shapes a scene borrows (see GROUND_HZ, AIR_HZ, GATE_PATTERN,
+ * LANDMARKS below) — recoloured per scene, the same way SKINS recolours one
+ * dove shape six ways, rather than every scene needing its own hand-drawn
+ * obstacle set.
+ */
 export const CHAPTERS = [
-	{"from": 0,  "name": "The Storm",  "ref": "Jonah 1:4",  "kind": "mast",
+	{"from": 0,   "name": "The Storm", "kind": "mast",
 	 "sky": "#4E6A7A", "far": "#3A5364", "mid": "#31485A", "gnd": "#263644",
 	 "ob": "#93A7B3", "obd": "#5D6F7C", "obt": "#B4C4CD", "hzg": "#7E93A0", "hza": "#EDF3F7"},
-	{"from": 5,  "name": "The Deep",   "ref": "Jonah 2:3",  "kind": "kelp",
+	{"from": 5,   "name": "The Deep",  "kind": "kelp",
 	 "sky": "#0F4152", "far": "#0B3243", "mid": "#092A38", "gnd": "#061F2A",
 	 "ob": "#2A8A76", "obd": "#155A4C", "obt": "#3FB39A", "hzg": "#C9647A", "hza": "#B8E8F0"},
-	{"from": 15, "name": "The Fish",   "ref": "Jonah 1:17", "kind": "rib",
+	{"from": 15,  "name": "The Fish",  "kind": "rib",
 	 "sky": "#3E1E19", "far": "#2E1411", "mid": "#26100E", "gnd": "#1A0B0A",
 	 "ob": "#9A5140", "obd": "#633026", "obt": "#C0705B", "hzg": "#E8DCC8", "hza": "#D8C8B0"},
-	{"from": 30, "name": "Nineveh",    "ref": "Jonah 3:3",  "kind": "tower",
+	{"from": 30,  "name": "Nineveh",   "kind": "tower",
 	 "sky": "#F2A65A", "far": "#E88C3F", "mid": "#D97B31", "gnd": "#A85E1C",
 	 "ob": "#D9A441", "obd": "#9C7020", "obt": "#F0CB72", "hzg": "#2F6B33", "hza": "#E8503C"},
+	{"from": 45,  "name": "Dusk",      "kind": "mast",
+	 "sky": "#6B5A8C", "far": "#4F4368", "mid": "#3E344F", "gnd": "#2A2337",
+	 "ob": "#C9A6D9", "obd": "#8A6B9E", "obt": "#E6CCF0", "hzg": "#A984BE", "hza": "#FFE9D6"},
+	{"from": 65,  "name": "Frost",     "kind": "kelp",
+	 "sky": "#C9E4EE", "far": "#A3CBDC", "mid": "#7FADC4", "gnd": "#52829E",
+	 "ob": "#2F5B77", "obd": "#1D3C50", "obt": "#6FA8C4", "hzg": "#8AC4DE", "hza": "#FFFFFF"},
+	{"from": 85,  "name": "Wildfire",  "kind": "rib",
+	 "sky": "#7A2E1E", "far": "#5C2116", "mid": "#491A11", "gnd": "#33110A",
+	 "ob": "#E0602E", "obd": "#9C3D18", "obt": "#F5924E", "hzg": "#FFD27A", "hza": "#FFF1C2"},
+	{"from": 105, "name": "Aurora",    "kind": "tower",
+	 "sky": "#1A2E3D", "far": "#142330", "mid": "#101C26", "gnd": "#0A1218",
+	 "ob": "#3FBF8F", "obd": "#227A57", "obt": "#7DE8BE", "hzg": "#6B4FA8", "hza": "#C9A0FF"},
+	{"from": 125, "name": "Monsoon",   "kind": "mast",
+	 "sky": "#3A4650", "far": "#2C363E", "mid": "#232B32", "gnd": "#171D22",
+	 "ob": "#7C93A0", "obd": "#4E606C", "obt": "#A9BDC7", "hzg": "#5E7482", "hza": "#E8F0F4"},
+	{"from": 145, "name": "Eclipse",   "kind": "kelp",
+	 "sky": "#0E0E14", "far": "#0A0A10", "mid": "#07070B", "gnd": "#030305",
+	 "ob": "#4A4A5E", "obd": "#2C2C3A", "obt": "#7A7A96", "hzg": "#57576E", "hza": "#F5D76E"},
 ] as const;
+
+/** After the last scene, advance one scene every this many points, looping
+ *  the whole ten-scene roster forever. */
+export const CHAPTER_CYCLE_STEP = 20 as const;
 
 export const DAY_LENGTH_PX = 18000.0 as const;
 
@@ -215,7 +259,7 @@ export const STRINGS = {
 		"streak": "Streak", "best": "Best", "feathers": "Feathers",
 		"tagline": "One touch. Storm, deep and sky.",
 		"credits": "Credits", "madeby": "Made by", "builtwith": "Built with",
-		"chapters": "Chapters", "website": "Elsewhere",
+		"scenery": "Scenery", "website": "Elsewhere",
 		"playername": "Your name", "savename": "That's me",
 		"recovery": "Recovery", "getcode": "Show me the code",
 		"entercode": "Recovery code", "restoreacct": "Restore it",
@@ -252,7 +296,7 @@ export const STRINGS = {
 		"streak": "Mfululizo", "best": "Bora", "feathers": "Manyoya",
 		"tagline": "Mguso mmoja. Dhoruba, kina na anga.",
 		"credits": "Waliohusika", "madeby": "Imetengenezwa na",
-		"builtwith": "Imejengwa kwa", "chapters": "Sura", "website": "Kwingineko",
+		"builtwith": "Imejengwa kwa", "scenery": "Mandhari", "website": "Kwingineko",
 		"playername": "Jina lako", "savename": "Ndiye mimi",
 		"recovery": "Kurejesha", "getcode": "Nionyeshe msimbo",
 		"entercode": "Msimbo wa kurejesha", "restoreacct": "Nirudishie",

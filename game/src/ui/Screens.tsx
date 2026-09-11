@@ -7,7 +7,7 @@ import { Button, Choice, Code, Field, Link, Note, Screen, Section, Spinner, Stac
 import * as api from '../net/api.ts';
 import { load, save, setSetting, bestFor } from '../store.ts';
 import { applyChrome } from '../chrome.ts';
-import { SKINS, MODE_ORDER, VERSION, CHAPTERS } from '../engine/constants.ts';
+import { SKINS, MODE_ORDER, VERSION } from '../engine/constants.ts';
 import { pad5 } from './Hud.tsx';
 
 // ------------------------------------------------------------------ title
@@ -543,20 +543,12 @@ export function Credits({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
-      <Section>{t('chapters')}</Section>
+      <Section>{t('scenery')}</Section>
       <Note>
-        The sky changes four times, and each one is a place in the book of
-        Jonah. Referenced, never quoted.
+        The sky keeps changing the longer you fly — ten scenes and counting,
+        never stuck on one for good. Outlast the roster and it starts again
+        from the first.
       </Note>
-      <div className="flex flex-col gap-2">
-        {CHAPTERS.map((c) => (
-          <div key={c.name} className="flex items-center gap-3 rounded-xl bg-slot px-4 py-3">
-            <span className="h-5 w-5 rounded" style={{ background: c.sky }} />
-            <span className="flex-1">{c.name}</span>
-            <span className="font-display text-xs text-dim">{c.ref}</span>
-          </div>
-        ))}
-      </div>
 
       <Section>{t('builtwith')}</Section>
       <Note>
