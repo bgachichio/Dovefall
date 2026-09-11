@@ -206,21 +206,18 @@ function Row({ r, me }: { r: api.BoardEntry; me: boolean }) {
 const POLL_WINDOW_MS = 3 * 60_000;
 const POLL_EVERY_MS = 4_000;
 
-export function Respawns({ onBack }: { onBack: () => void }) {
+export function Respawns({ onBack, justPaid }: { onBack: () => void; justPaid?: boolean }) {
   const [info, setInfo] = useState<api.RespawnInfo | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [credited, setCredited] = useState<number | null>(null);
 
-  // What the balance was the moment the player went to pay, and the timers
-  // doing the watching. Refs, not state — a running interval must read the
-  // CURRENT baseline on its next tick, not the one captured when it started.
+  // What the balance was before this payment, and the timers doing the
+  // watching. Refs, not state — a running interval must read the CURRENT
+  // baseline on its next tick, not the one captured when it started.
   const baseline = useRef<number | null>(null);
   const pollId = useRef<number | null>(null);
   const windowId = useRef<number | null>(null);
-
-  const refresh = () => api.respawns().then(setInfo).catch(() => { setMsg('No connection.'); return null; });
-  useEffect(() => { refresh(); }, []);
 
   const stopWatching = () => {
     if (pollId.current != null) { clearInterval(pollId.current); pollId.current = null; }
@@ -228,9 +225,10 @@ export function Respawns({ onBack }: { onBack: () => void }) {
     setChecking(false);
   };
 
-  // Fire on every check, whoever asked for it: the interval, a regained tab,
-  // or a manual "I have paid" tap. The FIRST thing to notice a rise in
-  // balance wins, and everyone else's next tick finds nothing left to do.
+  // Fire on every check, whoever asked for it: the redirect back from
+  // Paystack, the backstop interval, a regained tab, or a manual "I have
+  // paid" tap. The FIRST one to notice a rise in balance wins; everyone
+  // else's next tick finds nothing left to do.
   const checkOnce = async () => {
     const r = await api.respawns().catch(() => null);
     if (!r) return;
@@ -241,19 +239,40 @@ export function Respawns({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const startWatching = () => {
+  const startWatching = (windowMs: number) => {
     stopWatching();
-    baseline.current = info?.respawns ?? 0;
     setCredited(null);
     setChecking(true);
     pollId.current = window.setInterval(checkOnce, POLL_EVERY_MS);
-    windowId.current = window.setTimeout(stopWatching, POLL_WINDOW_MS);
+    windowId.current = window.setTimeout(stopWatching, windowMs);
   };
 
-  // The player almost never watches the payment tab — they pay, then switch
-  // straight back here. Checking the instant this tab regains focus is what
-  // makes the credit land before they have time to wonder whether it worked,
-  // rather than waiting out the rest of a 4-second interval.
+  useEffect(() => {
+    if (justPaid) {
+      // This load IS the trip back from Paystack's own redirect — the
+      // primary path, not the backstop. `load()` still holds the balance
+      // from BEFORE the tab navigated away (nothing here has written to it
+      // since), so it is exactly the baseline a "+N credited" banner needs,
+      // even though this component only just mounted and never watched the
+      // payment happen.
+      baseline.current = load().respawns;
+      checkOnce();
+      // The redirect usually means the webhook has already landed by the
+      // time it fires. This is only for the rare case it hasn't yet — a
+      // short backstop, not the 3-minute window a fresh "Pay" tap gets.
+      startWatching(30_000);
+    } else {
+      api.respawns().then(setInfo).catch(() => setMsg('No connection.'));
+    }
+    return stopWatching;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The one case the redirect doesn't cover: the player leaves the Paystack
+  // page some other way — the system browser opened it outside the PWA,
+  // they switched apps and came back, anything that isn't the redirect
+  // firing. Checking the instant this tab regains focus, while a watch is
+  // running, catches that without needing them to notice and tap anything.
   useEffect(() => {
     const onFocus = () => { if (pollId.current != null) checkOnce(); };
     document.addEventListener('visibilitychange', onFocus);
@@ -261,7 +280,6 @@ export function Respawns({ onBack }: { onBack: () => void }) {
     return () => {
       document.removeEventListener('visibilitychange', onFocus);
       window.removeEventListener('focus', onFocus);
-      stopWatching();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -307,8 +325,12 @@ export function Respawns({ onBack }: { onBack: () => void }) {
             <Button
               primary
               onClick={() => {
-                window.open(info.payUrl!, '_blank', 'noopener');
-                startWatching();
+                // Same tab, on purpose: Paystack's own "Redirect after
+                // payment" setting is what brings the player straight back
+                // into the game afterwards (see App.tsx's consumePaidMarker).
+                // Opening a second tab would strand that redirect somewhere
+                // the player is not looking at.
+                location.href = info.payUrl!;
               }}
             >
               {t('paynow')}
@@ -317,8 +339,13 @@ export function Respawns({ onBack }: { onBack: () => void }) {
           <Button
             onClick={() => {
               setMsg('Looking…');
-              baseline.current = info?.respawns ?? 0;
+              if (baseline.current == null) baseline.current = info?.respawns ?? 0;
               checkOnce().finally(() => setMsg(null));
+              // One explicit check right now, then keep watching for a
+              // while in case the webhook is still in flight — the same
+              // backstop a "Pay" tap gets, for whoever tapped this instead
+              // (paid earlier, came back later, or the redirect didn't fire).
+              if (pollId.current == null) startWatching(POLL_WINDOW_MS);
             }}
           >
             {t('ihavepaid')}
@@ -328,9 +355,10 @@ export function Respawns({ onBack }: { onBack: () => void }) {
       {msg && <Note>{msg}</Note>}
       <Note>
         {checking
-          ? 'Watching for it — come back to this tab once you have paid and it should appear in a few seconds.'
-          : <>Paystack confirms the payment, not this screen. If your hearts have not
-              appeared, tap “{t('ihavepaid')}” — nothing is lost in the meantime.</>}
+          ? 'Confirming with Paystack — this takes a few seconds.'
+          : <>Tapping “{t('paynow')}” takes you to Paystack in this tab; paying brings
+              you straight back here, already credited. If it doesn't, tap
+              “{t('ihavepaid')}” — nothing is lost in the meantime.</>}
       </Note>
     </Screen>
   );

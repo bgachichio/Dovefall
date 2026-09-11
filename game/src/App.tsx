@@ -23,6 +23,25 @@ import { applyChrome, watchSystemTheme } from './chrome.ts';
 
 type Route = 'title' | 'name' | 'run' | 'board' | 'settings' | 'credits' | 'wardrobe' | 'account' | 'respawns';
 
+/**
+ * Was this page load the redirect back from Paystack's hosted page?
+ *
+ * Paystack's own "Redirect after payment" setting is a fixed URL configured
+ * once in their dashboard, not something this app generates per-visit — so
+ * the marker it carries is a plain, static `?paid=1`, and the whole contract
+ * with that dashboard setting is "end the URL in that querystring". Read
+ * once, at the top of boot, and stripped immediately: a marker left in the
+ * URL would fire again on every refresh, not just the one that earned it.
+ */
+function consumePaidMarker(): boolean {
+  if (typeof location === 'undefined') return false;
+  const url = new URL(location.href);
+  if (!url.searchParams.has('paid')) return false;
+  url.searchParams.delete('paid');
+  history.replaceState(null, '', url.pathname + url.search + url.hash);
+  return true;
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -32,7 +51,12 @@ export default function App() {
   const pausedRef = useRef(false);
 
   const stored = load();
-  const [route, setRoute] = useState<Route>(stored.tutorialDone ? 'title' : 'name');
+  // Computed once, at mount, never re-derived: a later render must not see
+  // this go true again just because something else touched the URL.
+  const [justPaid] = useState(consumePaidMarker);
+  const [route, setRoute] = useState<Route>(
+    !stored.tutorialDone ? 'name' : justPaid ? 'respawns' : 'title',
+  );
   /** The listeners below are created once; this is how they read the live route. */
   const routeRef = useRef<Route>(route);
   routeRef.current = route;
@@ -381,7 +405,7 @@ export default function App() {
         />
       )}
       {route === 'board' && <Leaderboard onBack={back} />}
-      {route === 'respawns' && <Respawns onBack={back} />}
+      {route === 'respawns' && <Respawns onBack={back} justPaid={justPaid} />}
       {route === 'settings' && <Settings onBack={back} go={go} />}
       {route === 'account' && <Account onBack={back} />}
       {route === 'wardrobe' && <Wardrobe onBack={back} />}

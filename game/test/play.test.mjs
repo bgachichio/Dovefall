@@ -285,6 +285,42 @@ describe('Dovefall in a browser', {
     await ctx.close();
   });
 
+  test('a redirect back from Paystack lands on Respawns, already credited', async () => {
+    // The whole point of the same-tab payment flow: Paystack's own
+    // "Redirect after payment" setting brings the browser straight back to
+    // this URL with ?paid=1 on it (App.tsx's consumePaidMarker). No title
+    // screen, no menu-hopping — this load IS the return trip.
+    const ctx = await browser.newContext(PHONE);
+    await ctx.addInitScript(() => {
+      localStorage.setItem('dovefall.v1', JSON.stringify({
+        rev: 1, installId: '33333333-3333-3333-3333-333333333333',
+        bests: {}, feathers: 0, owned: ['dove'], tutorialDone: true,
+        name: 'Kifaru', tag: '4T7X', token: '', respawns: 0,
+      }));
+    });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(
+      `${base}?api=${encodeURIComponent(base.replace(/\/$/, ''))}&paid=1`,
+      { waitUntil: 'networkidle' },
+    );
+
+    // Landed on Respawns directly — never saw DOVEFALL or a menu tap.
+    await page.waitForSelector('text=Respawns');
+    // The stub reports balance 2 against a local baseline of 0 saved above:
+    // the credited banner, not a bare number update.
+    await page.waitForSelector('text=+2 credited', { timeout: 10_000 });
+
+    // The marker does not survive the load it triggered — reloading this
+    // exact tab must not replay the "just paid" behaviour a second time.
+    const search = await page.evaluate(() => location.search);
+    assert.ok(!search.includes('paid=1'), `?paid=1 was not stripped: ${search}`);
+
+    assert.deepEqual(errors, [], 'no console errors on the paid-redirect boot');
+    await ctx.close();
+  });
+
   test('a desktop visitor plays the game, with a mouse and with the keyboard', async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
     await ctx.addInitScript(() => {

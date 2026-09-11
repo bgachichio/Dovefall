@@ -28,14 +28,17 @@ crons = ["0 * * * *"]
 # exactly. The Android build sends no Origin header and is unaffected. Never
 # "*" — this API carries a bearer token.
 #
-# Both origins the game is served from. gachichio.org is where it ends up
-# after the DNS move; workers.dev is where it lives until then, and it stays
-# in the list afterwards so the fallback URL keeps working.
+# Every origin the game is, or will be, served from. workers.dev is what's
+# live today; play.gachichio.org is added ahead of the DNS move landing, not
+# after — an origin that doesn't resolve yet is inert here, so there is no
+# reason to wait. gachichio.org is the bare apex, kept for whatever the
+# eventual choice between a path and a subdomain turns out to be. None of
+# these get removed once added: the fallback URL keeps working.
 #
 # A missing origin here is invisible from the outside: the game loads, the
 # menus work, and every call to this API silently fails — which the player
 # sees as the word "Offline".
-ALLOWED_ORIGINS = "https://gachichio.org,https://dovefall-site.bgkaranja.workers.dev"
+ALLOWED_ORIGINS = "https://gachichio.org,https://dovefall-site.bgkaranja.workers.dev,https://play.gachichio.org"
 
 # The hosted Paystack payment page. Public by nature — the secret key is a
 # wrangler secret, never a var.
