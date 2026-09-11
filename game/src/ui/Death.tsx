@@ -34,7 +34,7 @@ export function DeathPanel({ sim, best, isPb, streak, respawns, tutorial, armed,
   async function share() {
     const outcome = await shareScore({
       score: sim.score, name: name || 'A dove', tag, mode: sim.mode,
-      skin: 'dove',
+      skin: 'dove', isPb,
     });
     setShared(outcome === 'copied' ? 'Copied — go and paste it' : outcome === 'intent' ? 'Opening X…' : null);
   }

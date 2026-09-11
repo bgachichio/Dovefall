@@ -157,10 +157,18 @@ The scale differs per device. Nothing else does — see §7a.
 
 ```bash
 cd game
-VITE_API_BASE=https://dovefall-api.<your-subdomain>.workers.dev \
-VITE_SHARE_URL=https://gachichio.org/dovefallgame \
 npm run build
 ```
+
+That is the whole command. `game/.env.production` carries `VITE_API_BASE` as
+a committed default now, not something to remember to type — a bare
+`npm run build` used to ship a silently offline game (no account, no
+leaderboard, no payments, and nothing on screen said why), because Vite's
+own default for an unset variable is empty, not "point at production." That
+is not hypothetical: it is exactly what shipped for a few hours before this
+file existed. `VITE_SHARE_URL` needs no setting at all — the share link
+reads `location.origin` at runtime, so it always matches wherever the
+bundle actually ends up served.
 
 | | Expected |
 |---|---|
@@ -169,9 +177,17 @@ npm run build
 | Over the wire | **~0.11 MB** |
 | Artefact | `game/dist/` — a plain folder of static files |
 
-> Leaving `VITE_API_BASE` unset is a valid ship state: the game plays entirely
-> offline, with local bests and no leaderboard. It is the fastest rollback
-> there is and it needs no server at all.
+**The rollback still exists, on purpose, one level up.** An explicit empty
+value on the command line overrides the committed default — Vite's own
+precedence, a shell-set variable always wins over `.env.production`:
+
+```bash
+VITE_API_BASE= npm run build     # deliberately offline, verified to still work
+```
+
+That is §8's "Everything" row: the game plays with local bests and no
+leaderboard, and needs no server at all. The difference this section makes
+is that reaching that state now takes typing something, not forgetting to.
 
 ---
 
@@ -499,7 +515,7 @@ point in the port and is cheap to re-break.
 |---|---|---|
 | The game | `cd site && npx wrangler rollback` | under 60 s |
 | The API | `cd worker && npx wrangler rollback` | under 60 s |
-| Everything | Rebuild `game/` with `VITE_API_BASE` unset, `npm run sync && npx wrangler deploy` — the game plays offline with no server at all | ~2 min |
+| Everything | Rebuild `game/` with `VITE_API_BASE=` (empty, explicit — see §5) then `npm run sync && npx wrangler deploy` — the game plays offline with no server at all | ~2 min |
 | A leaked session secret | `npx wrangler secret put SESSION_SECRET` with a new value. Every player is signed out and every token is void | 30 s |
 | DNS | Set the root `A` record back to grey-cloud in Cloudflare, or move the nameservers back to Porkbun | minutes |
 

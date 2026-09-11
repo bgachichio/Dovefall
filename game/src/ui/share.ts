@@ -73,10 +73,25 @@ export function makeShareCard(opts: {
 
 export type ShareOutcome = 'shared' | 'copied' | 'intent' | 'failed';
 
+/**
+ * The line that travels everywhere — WhatsApp, X, the clipboard fallback,
+ * every surface `shareScore` below can reach. It used to be a flat
+ * statement of fact ("42 in Dovefall. One touch. Storm, deep and sky.") with
+ * nowhere for the reader to go next: no invitation, no reason to tap the
+ * link rather than just read the number and move on.
+ *
+ * A share exists to be answered. The CTA is the whole point of sending it.
+ */
+export function shareText(score: number, isPb: boolean): string {
+  return isPb
+    ? `New best in Dovefall: ${score}. One touch, no do-overs — think you can beat it?`
+    : `I flew to ${score} in Dovefall. One touch, no do-overs — your turn.`;
+}
+
 export async function shareScore(opts: {
-  score: number; name: string; tag: string; mode: string; skin: string;
+  score: number; name: string; tag: string; mode: string; skin: string; isPb?: boolean;
 }): Promise<ShareOutcome> {
-  const text = `${opts.score} in Dovefall. One touch. Storm, deep and sky.`;
+  const text = shareText(opts.score, Boolean(opts.isPb));
   const nav = navigator as Navigator & {
     canShare?: (d: ShareData) => boolean;
     share?: (d: ShareData) => Promise<void>;
