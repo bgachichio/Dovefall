@@ -411,6 +411,69 @@ describe('Dovefall in a browser', {
     await ctx.close();
   });
 
+  test('a credit noticed while dead on zero hearts resumes the flight itself', async () => {
+    // Paying does not have to mean leaving this tab: the pay code works with
+    // any payment that mentions it, not only the in-app "Pay with Paystack"
+    // button, so a credit can land while the run is still sitting right here
+    // in memory. When that happens, the point of paying was to keep flying —
+    // tapping "I've paid" should not also require a trip back to the death
+    // panel and a second tap on "Keep flying".
+    const ctx = await browser.newContext(PHONE);
+    let respawnCalls = 0;
+    let spendCalled = false;
+    await ctx.route('**/v1/**', (route) => {
+      const url = new URL(route.request().url());
+      const send = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      if (url.pathname === '/v1/respawns') {
+        respawnCalls += 1;
+        // First fetch (on mount): still zero. Second (the "I've paid" tap):
+        // credited — a payment landed between the two without this tab ever
+        // navigating away.
+        const balance = respawnCalls === 1 ? 0 : 3;
+        return send({ balance, pay_code: 'K7M2QX9F', pay_link: null, per_payment: 3, min_kes: 50 });
+      }
+      if (url.pathname === '/v1/respawns/spend') {
+        spendCalled = true;
+        return send({ ok: true, balance: 2 });
+      }
+      return send({});
+    });
+    await ctx.addInitScript(() => {
+      localStorage.setItem('dovefall.v1', JSON.stringify({
+        rev: 1, installId: '44444444-1111-1111-1111-111111111111',
+        bests: {}, feathers: 0, owned: ['dove'], tutorialDone: true,
+        name: 'Tester', tag: '0001', token: '', respawns: 0,
+        settings: { sfx: false, haptics: false, atmos: 2, flashing: false, lefthand: false,
+          mode: 'normal', skin: 'dove', lang: 'en', theme: 'dark', fontScale: 1 },
+      }));
+    });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?api=${encodeURIComponent(base.replace(/\/$/, ''))}`, { waitUntil: 'networkidle' });
+    await page.click('button:has-text("Fly")');
+    await page.waitForSelector('text=TAP TO FLAP');
+    await page.locator('canvas').dispatchEvent('pointerdown'); // start, then fall and die untapped
+    await page.waitForSelector('text=More hearts', { timeout: 15000 });
+
+    await page.click('button:has-text("More hearts")');
+    await page.waitForSelector('text=Respawns');
+    await page.waitForSelector('text=K7M2QX9F');
+
+    await page.click('button:has-text("I\'ve paid")');
+
+    // Back on the playfield, not the Respawns screen, with no tap of its own.
+    await page.waitForSelector('canvas', { state: 'visible' });
+    await page.waitForSelector('text=Respawns', { state: 'detached', timeout: 5000 });
+    assert.ok(spendCalled, 'the credited heart was never actually spent to resume');
+
+    const phase = await page.evaluate(() => window.__dovefall?.sim?.()?.phase);
+    assert.notEqual(phase, 'dead', 'the run is still sitting dead, not resumed');
+
+    assert.deepEqual(errors, [], 'no console errors resuming from a credited pay code');
+    await ctx.close();
+  });
+
   test('a desktop visitor plays the game, with a mouse and with the keyboard', async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
     await ctx.addInitScript(() => {

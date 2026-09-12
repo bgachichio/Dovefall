@@ -213,7 +213,12 @@ function Row({ r, me }: { r: api.BoardEntry; me: boolean }) {
 const POLL_WINDOW_MS = 3 * 60_000;
 const POLL_EVERY_MS = 4_000;
 
-export function Respawns({ onBack, justPaid }: { onBack: () => void; justPaid?: boolean }) {
+export function Respawns({ onBack, justPaid, onCredited }: {
+  onBack: () => void;
+  justPaid?: boolean;
+  /** Called once, with the new balance, the moment a credit is detected. */
+  onCredited?: (balance: number) => void;
+}) {
   const [info, setInfo] = useState<api.RespawnInfo | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -243,6 +248,7 @@ export function Respawns({ onBack, justPaid }: { onBack: () => void; justPaid?: 
     if (baseline.current != null && r.respawns > baseline.current) {
       setCredited(r.respawns - baseline.current);
       stopWatching();
+      onCredited?.(r.respawns);
     }
   };
 

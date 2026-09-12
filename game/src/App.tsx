@@ -346,6 +346,25 @@ export default function App() {
     if (s.swOffer) secondWind(s); else continueRun(s);
   }, [respawns, go]);
 
+  // Fires the moment a payment credits hearts — from any path that notices
+  // it (the same-tab redirect, the background poll, a regained tab, or a
+  // manual "I've paid" tap). If that credit landed while the death panel was
+  // sitting on zero hearts (the only reason this screen offers buying more
+  // mid-run), the point of paying was to keep flying — so resume right into
+  // it, the same one-heart spend and countdown "Keep flying" would have
+  // triggered, instead of making them tap Back and then Keep flying by hand.
+  // Reached from Settings with no run in progress, `s` is null and this is a
+  // no-op beyond the balance update, which is exactly right.
+  const onCredited = useCallback((newBalance: number) => {
+    setRespawns(newBalance);
+    const s = simRef.current;
+    if (!s || s.phase !== 'dead') return;
+    back();
+    setRespawns((n) => Math.max(0, n - 1));
+    api.spendRespawn().then((r) => setRespawns(r.respawns)).catch(() => { /* offline: allow it */ });
+    if (s.swOffer) secondWind(s); else continueRun(s);
+  }, [back]);
+
 
   // ---------------------------------------------------------------- view
   const sim = simRef.current;
@@ -419,7 +438,7 @@ export default function App() {
         />
       )}
       {route === 'board' && <Leaderboard onBack={back} />}
-      {route === 'respawns' && <Respawns onBack={back} justPaid={justPaid} />}
+      {route === 'respawns' && <Respawns onBack={back} justPaid={justPaid} onCredited={onCredited} />}
       {route === 'settings' && <Settings onBack={back} go={go} />}
       {route === 'account' && <Account onBack={back} />}
       {route === 'wardrobe' && <Wardrobe onBack={back} />}
