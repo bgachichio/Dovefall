@@ -150,7 +150,15 @@ export default function App() {
       onFrame: (s) => {
         setPhase((p) => (p === s.phase ? p : s.phase));
         setScore((n) => (n === s.score ? n : s.score));
-        setCountdown((c) => (Math.abs(c - s.countdown) < 0.05 ? c : s.countdown));
+        // The 0.05s tolerance throttles re-renders during the visible count,
+        // but must never swallow the transition TO zero: once the displayed
+        // value is already inside that tolerance of a target that only ever
+        // shrinks toward zero, the diff can never grow back past 0.05 to
+        // trigger the update that would actually clear the overlay.
+        setCountdown((c) => {
+          if (s.countdown === 0) return c === 0 ? c : 0;
+          return Math.abs(c - s.countdown) < 0.05 ? c : s.countdown;
+        });
       },
     });
     loopRef.current = handle;

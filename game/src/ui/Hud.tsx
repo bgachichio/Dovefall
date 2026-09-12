@@ -118,7 +118,7 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
 export function CountdownOverlay({ seconds }: { seconds: number }) {
   return (
     <div className="pointer-events-none absolute inset-0 grid place-items-center">
-      <span className="font-display text-7xl font-bold text-paper drop-shadow-[0_4px_0_rgba(0,0,0,.5)]">
+      <span className="font-display text-7xl font-bold tabular-nums text-paper drop-shadow-[0_4px_0_rgba(0,0,0,.5)]">
         {Math.ceil(seconds)}
       </span>
     </div>

@@ -274,6 +274,25 @@ test('the respawn countdown freezes the world, t included', () => {
   assert.ok(s.countdown < SW_COUNTDOWN_S, 'but the countdown is running');
 });
 
+test('the countdown lands on exactly zero, not a float short of it', () => {
+  // SW_COUNTDOWN_S / FIXED is an exact integer of ticks (264), but neither
+  // number is exact in binary floating point: ticking down by FIXED that
+  // many times lands on 5.49e-15, not 0 — confirmed directly, outside this
+  // engine, before writing the fix. `countdown > 0` gates the overlay in the
+  // UI, so that residue meant the "1" never went away until the next
+  // respawn. This checks the EXACT tick the countdown is due to end on, not
+  // some tick after it — a few extra ticks would let Math.max's own clamp
+  // paper over the bug once the residue goes negative, and prove nothing.
+  const s = createSim({ seed: 0xd0fe });
+  queueFlap(s, 0);
+  for (let i = 0; i < 400; i++) step(s, i * 8);
+  continueRun(s);
+
+  const ticks = Math.round(SW_COUNTDOWN_S / FIXED);
+  for (let i = 0; i < ticks; i++) step(s, i);
+  assert.equal(s.countdown, 0, 'countdown did not land on exactly zero on schedule');
+});
+
 test('input is ignored for RESTART_MS after a death', () => {
   const s = createSim({ seed: 0xd0fe });
   s.diedAt = 1000;

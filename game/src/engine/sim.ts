@@ -329,7 +329,20 @@ export function step(s: Sim, nowMs: number): void {
   // The respawn countdown freezes the world. Godot paused the whole tree, so
   // `t` stopped too — and `t` drives gate drift, so advancing it here would
   // move the gates while the player watches a number count down.
-  if (s.countdown > 0) { s.countdown = Math.max(0, s.countdown - dt); return; }
+  //
+  // SW_COUNTDOWN_S / FIXED is an exact integer of ticks, but neither number
+  // is exact in binary floating point, so the final subtraction can land on
+  // a residue a few epsilons either side of zero instead of exactly on it.
+  // Landing fractionally above zero left the countdown overlay stuck on
+  // screen through the whole next life — `countdown > 0` stayed true forever
+  // once App.tsx's own throttle (which only updates its displayed value on
+  // a jump of 0.05s or more) had nothing left to jump across. Snapping the
+  // residue to exactly 0 here is what makes that `> 0` check honest.
+  if (s.countdown > 0) {
+    s.countdown = Math.max(0, s.countdown - dt);
+    if (s.countdown < 1e-6) s.countdown = 0;
+    return;
+  }
 
   s.t += dt;
   s.sinceFlap += dt;
