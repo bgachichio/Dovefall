@@ -20,6 +20,7 @@ import { DeathPanel } from './ui/Death.tsx';
 import { Account, Credits, Leaderboard, NameScreen, Pause, Respawns, Settings, Title, Wardrobe } from './ui/Screens.tsx';
 import { buzz, gatePitch, play as playSound } from './audio.ts';
 import { applyChrome, watchSystemTheme } from './chrome.ts';
+import { persistDeadRun, takeDeadRun } from './deadrun.ts';
 
 type Route = 'title' | 'name' | 'run' | 'board' | 'settings' | 'credits' | 'wardrobe' | 'account' | 'respawns';
 
@@ -46,7 +47,6 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const simRef = useRef<Sim | null>(null);
   const loopRef = useRef<LoopHandle | null>(null);
   const pausedRef = useRef(false);
 
@@ -54,14 +54,19 @@ export default function App() {
   // Computed once, at mount, never re-derived: a later render must not see
   // this go true again just because something else touched the URL.
   const [justPaid] = useState(consumePaidMarker);
+  // The one case a fresh boot has a run to hand back: the redirect from
+  // Paystack landed, and "More hearts" left a dead run waiting for exactly
+  // this. Taken (and cleared) at most once per boot — see deadrun.ts.
+  const [restoredDeadRun] = useState(() => (justPaid ? takeDeadRun() : null));
+  const simRef = useRef<Sim | null>(restoredDeadRun);
   const [route, setRoute] = useState<Route>(
     !stored.tutorialDone ? 'name' : justPaid ? 'respawns' : 'title',
   );
   /** The listeners below are created once; this is how they read the live route. */
   const routeRef = useRef<Route>(route);
   routeRef.current = route;
-  const [phase, setPhase] = useState<'ready' | 'play' | 'dead'>('ready');
-  const [score, setScore] = useState(0);
+  const [phase, setPhase] = useState<'ready' | 'play' | 'dead'>(restoredDeadRun ? 'dead' : 'ready');
+  const [score, setScore] = useState(restoredDeadRun?.score ?? 0);
   const [countdown, setCountdown] = useState(0);
   const [paused, setPaused] = useState(false);
   const [muted, setMutedState] = useState(!stored.settings.sfx);
@@ -255,7 +260,12 @@ export default function App() {
   }, []);
 
   // Submit on death. Fire and forget: the local best is already written.
-  const submitted = useRef(0);
+  //
+  // A restored dead run already went through this once, before the trip to
+  // Paystack and back — recordRun() already banked its feathers, and the
+  // server already has it. Seeding this to the restored diedAt is what
+  // stops the exact same death from being recorded and submitted twice.
+  const submitted = useRef(restoredDeadRun?.diedAt ?? 0);
   useEffect(() => {
     const s = simRef.current;
     if (!s || phase !== 'dead' || submitted.current === s.diedAt) return;
@@ -353,17 +363,24 @@ export default function App() {
   // mid-run), the point of paying was to keep flying — so resume right into
   // it, the same one-heart spend and countdown "Keep flying" would have
   // triggered, instead of making them tap Back and then Keep flying by hand.
-  // Reached from Settings with no run in progress, `s` is null and this is a
-  // no-op beyond the balance update, which is exactly right.
+  // `s` covers both shapes of that run: still in memory (never left this
+  // tab), or handed back by deadrun.ts after the "Pay with Paystack" redirect
+  // reloaded the page out from under it. Either way the route goes straight
+  // to 'run', not through back() — the redirect's own boot never pushed
+  // anything onto the stack for it to pop. Reached from Settings with no
+  // run in progress, `s` is null and this is a no-op beyond the balance
+  // update, which is exactly right.
   const onCredited = useCallback((newBalance: number) => {
     setRespawns(newBalance);
     const s = simRef.current;
     if (!s || s.phase !== 'dead') return;
-    back();
+    stackRef.current = [];
+    routeRef.current = 'run';
+    setRoute('run');
     setRespawns((n) => Math.max(0, n - 1));
     api.spendRespawn().then((r) => setRespawns(r.respawns)).catch(() => { /* offline: allow it */ });
     if (s.swOffer) secondWind(s); else continueRun(s);
-  }, [back]);
+  }, []);
 
 
   // ---------------------------------------------------------------- view
@@ -415,7 +432,7 @@ export default function App() {
             onRetry={() => startRun({ daily: sim.daily })}
             onHome={backToTitle}
             onRespawn={onRespawn}
-            onBuy={() => go('respawns')}
+            onBuy={() => { persistDeadRun(sim); go('respawns'); }}
           />
         )}
         {paused && (

@@ -8,6 +8,7 @@
 // where your eye already is, the best score opposite it, a badge when you are
 // on the board, and one line of context in the middle when something changes.
 
+import type { CSSProperties } from 'react';
 import { type Sim } from '../engine/sim.ts';
 import { load } from '../store.ts';
 import { t } from './kit.tsx';
@@ -20,6 +21,28 @@ export const touchFirst = (): boolean =>
   typeof matchMedia === 'function'
   && matchMedia('(pointer: coarse)').matches
   && matchMedia('(hover: none)').matches;
+
+/**
+ * Frost's sky is #C9E4EE, paper is #EEF4FF — 1.2:1 against WCAG's 3:1 floor
+ * for bold text this size, measured, not eyeballed. Nineveh sits at 1.8:1.
+ * The single-direction drop-shadow every other chapter's contrast already
+ * covers for was never going to save those two: it only darkens one edge,
+ * and a sky close to white in every direction needs a dark edge on all of
+ * them. A hard pixel outline — four cardinal offsets plus the diagonals,
+ * no blur, matching the game's own flat pixel-art shadows rather than a
+ * soft glow — reads over every chapter this game has or will ever add,
+ * which a per-chapter color fix would not.
+ */
+const pixelOutline = (px: number): CSSProperties => ({
+  textShadow: [
+    `${px}px 0 0 rgba(0,0,0,.85)`, `-${px}px 0 0 rgba(0,0,0,.85)`,
+    `0 ${px}px 0 rgba(0,0,0,.85)`, `0 -${px}px 0 rgba(0,0,0,.85)`,
+    `${px}px ${px}px 0 rgba(0,0,0,.7)`, `-${px}px -${px}px 0 rgba(0,0,0,.7)`,
+    `${px}px -${px}px 0 rgba(0,0,0,.7)`, `-${px}px ${px}px 0 rgba(0,0,0,.7)`,
+  ].join(', '),
+});
+const HUD_OUTLINE = pixelOutline(1);
+const COUNTDOWN_OUTLINE = pixelOutline(2.5);
 
 export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }: {
   sim: Sim | null;
@@ -62,14 +85,13 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
           >
             {muted ? 'OFF' : 'SND'}
           </button>
-          <span className="font-display text-3xl font-bold tabular-nums drop-shadow-[0_2px_0_rgba(0,0,0,.6)]">
+          <span className="font-display text-3xl font-bold tabular-nums" style={HUD_OUTLINE}>
             {pad5(score)}
           </span>
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="font-display text-3xl font-bold tabular-nums text-paper/75
-                           drop-shadow-[0_2px_0_rgba(0,0,0,.6)]">
+          <span className="font-display text-3xl font-bold tabular-nums text-paper/75" style={HUD_OUTLINE}>
             {pad5(best)}
           </span>
           {top10 && (
@@ -118,7 +140,7 @@ export function Hud({ sim, score, best, streak, top10, muted, onMute, onPause }:
 export function CountdownOverlay({ seconds }: { seconds: number }) {
   return (
     <div className="pointer-events-none absolute inset-0 grid place-items-center">
-      <span className="font-display text-7xl font-bold tabular-nums text-paper drop-shadow-[0_4px_0_rgba(0,0,0,.5)]">
+      <span className="font-display text-7xl font-bold tabular-nums text-paper" style={COUNTDOWN_OUTLINE}>
         {Math.ceil(seconds)}
       </span>
     </div>

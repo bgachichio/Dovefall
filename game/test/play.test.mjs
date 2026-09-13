@@ -474,6 +474,76 @@ describe('Dovefall in a browser', {
     await ctx.close();
   });
 
+  test('a credit after the real "Pay with Paystack" reload still resumes, exactly where it died', async () => {
+    // "Pay with Paystack" is location.href — a real navigation away and,
+    // via Paystack's own redirect, a real navigation back. The in-memory
+    // sim does not survive that; deadrun.ts's snapshot is what has to.
+    // This drives an actual reload (page.goto again, not a mocked one) and
+    // checks the run that comes back is the SAME course position, not score
+    // zero — and that the death it already recorded is not recorded twice.
+    const ctx = await browser.newContext(PHONE);
+    let runSubmissions = 0;
+    let respawnCalls = 0;
+    await ctx.route('**/v1/**', (route) => {
+      const url = new URL(route.request().url());
+      const send = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      if (url.pathname === '/v1/runs') { runSubmissions += 1; return send({ accepted: true, personal_best: false }); }
+      if (url.pathname === '/v1/respawns') {
+        respawnCalls += 1;
+        // Credited on the first check this reload makes — mirrors a webhook
+        // that had already landed by the time the redirect fires.
+        return send({ balance: 3, pay_code: 'K7M2QX9F', pay_link: null, per_payment: 3, min_kes: 50 });
+      }
+      if (url.pathname === '/v1/respawns/spend') return send({ ok: true, balance: 2 });
+      return send({});
+    });
+    const apiParam = `api=${encodeURIComponent(base.replace(/\/$/, ''))}`;
+    await ctx.addInitScript(() => {
+      localStorage.setItem('dovefall.v1', JSON.stringify({
+        rev: 1, installId: '55555555-2222-2222-2222-222222222222',
+        bests: {}, feathers: 0, owned: ['dove'], tutorialDone: true,
+        name: 'Tester', tag: '0002', token: '', respawns: 0,
+        settings: { sfx: false, haptics: false, atmos: 2, flashing: false, lefthand: false,
+          mode: 'normal', skin: 'dove', lang: 'en', theme: 'dark', fontScale: 1 },
+      }));
+    });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+
+    await page.goto(`${base}?${apiParam}`, { waitUntil: 'networkidle' });
+    await page.click('button:has-text("Fly")');
+    await page.waitForSelector('text=TAP TO FLAP');
+    await page.locator('canvas').dispatchEvent('pointerdown'); // start, then fall and die untapped
+    await page.waitForSelector('text=More hearts', { timeout: 15000 });
+    const scoreAtDeath = await page.evaluate(() => window.__dovefall.sim().score);
+    assert.ok(runSubmissions === 1, `the death should submit once before any reload, got ${runSubmissions}`);
+
+    await page.click('button:has-text("More hearts")');
+    await page.waitForSelector('text=K7M2QX9F');
+
+    // The redirect: an actual navigation to a fresh load of this same origin,
+    // carrying ?paid=1 — not a mock, the real path a browser takes.
+    await page.goto(`${base}?${apiParam}&paid=1`, { waitUntil: 'networkidle' });
+
+    // Landed back in flight, not stuck on Respawns, and at the SAME score
+    // the death panel showed — the whole point of "right back where you fell".
+    await page.waitForSelector('text=Respawns', { state: 'detached', timeout: 10_000 });
+    await page.waitForSelector('canvas', { state: 'visible' });
+    const restored = await page.evaluate(() => {
+      const s = window.__dovefall?.sim?.();
+      return s ? { phase: s.phase, score: s.score } : null;
+    });
+    assert.equal(restored?.score, scoreAtDeath, 'the resumed run did not continue from the score it died at');
+    assert.equal(restored?.phase, 'play', 'the run did not actually resume into play');
+    assert.ok(respawnCalls >= 1, 'the reload never checked for a credit at all');
+    assert.equal(runSubmissions, 1, 'the restored death was submitted again — the same run counted twice');
+
+    assert.deepEqual(errors, [], 'no console errors across the redirect and resume');
+    await ctx.close();
+  });
+
   test('a desktop visitor plays the game, with a mouse and with the keyboard', async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
     await ctx.addInitScript(() => {
