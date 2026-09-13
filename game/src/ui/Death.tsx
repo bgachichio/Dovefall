@@ -74,7 +74,7 @@ export function DeathPanel({ sim, best, isPb, streak, respawns, tutorial, armed,
               </button>
             )}
             {!canRespawn && !tutorial && (
-              <Button onClick={onBuy} disabled={!armed}>♥ {t('getrespawns')}</Button>
+              <Button onClick={onBuy} disabled={!armed}>♥ {t('keepgoing')}</Button>
             )}
 
             <Button primary onClick={onRetry} disabled={!armed}>{t('flyagain')}</Button>

@@ -454,9 +454,9 @@ describe('Dovefall in a browser', {
     await page.click('button:has-text("Fly")');
     await page.waitForSelector('text=TAP TO FLAP');
     await page.locator('canvas').dispatchEvent('pointerdown'); // start, then fall and die untapped
-    await page.waitForSelector('text=More hearts', { timeout: 15000 });
+    await page.waitForSelector('text=Keep this round going', { timeout: 15000 });
 
-    await page.click('button:has-text("More hearts")');
+    await page.click('button:has-text("Keep this round going")');
     await page.waitForSelector('text=Respawns');
     await page.waitForSelector('text=K7M2QX9F');
 
@@ -516,11 +516,11 @@ describe('Dovefall in a browser', {
     await page.click('button:has-text("Fly")');
     await page.waitForSelector('text=TAP TO FLAP');
     await page.locator('canvas').dispatchEvent('pointerdown'); // start, then fall and die untapped
-    await page.waitForSelector('text=More hearts', { timeout: 15000 });
+    await page.waitForSelector('text=Keep this round going', { timeout: 15000 });
     const scoreAtDeath = await page.evaluate(() => window.__dovefall.sim().score);
     assert.ok(runSubmissions === 1, `the death should submit once before any reload, got ${runSubmissions}`);
 
-    await page.click('button:has-text("More hearts")');
+    await page.click('button:has-text("Keep this round going")');
     await page.waitForSelector('text=K7M2QX9F');
 
     // The redirect: an actual navigation to a fresh load of this same origin,
