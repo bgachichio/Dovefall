@@ -186,7 +186,7 @@
   footer {
     position: relative; z-index: 2;
     padding: 0 1.25rem max(1rem, env(safe-area-inset-bottom));
-    display: flex; justify-content: center; gap: 1rem;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem 1rem;
     font-size: .76rem; color: var(--dim);
   }
   footer a { color: var(--dim); text-decoration: none; }
@@ -203,6 +203,8 @@
     header { display: none; }
   }
 </style>
+  <!-- Tally: first-party visitor counts (hi.gachichio.org). Add ?tally=off to any URL to exclude your own browser. -->
+  <script defer src="https://hi.gachichio.org/t.js"></script>
 </head>
 <body>
 
@@ -256,7 +258,7 @@
     <p class="tagline">One touch. Storm, deep and sky.</p>
     <p class="sub">A free flying game for your phone.</p>
 
-    <a class="cta" href="/dovefallgame/">
+    <a class="cta" href="/dovefallgame/" data-tally="play">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       Play now
     </a>
@@ -272,6 +274,7 @@
     <span>Brian Gachichio Karanja</span>
     <a href="https://gachichio.org" target="_blank" rel="noopener noreferrer">gachichio.org</a>
     <a href="https://x.com/bgachichio" target="_blank" rel="noopener noreferrer">X</a>
+    <span data-tally-badge style="flex-basis:100%;text-align:center"></span>
   </footer>
 
   <script>
