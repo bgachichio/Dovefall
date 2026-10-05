@@ -7,3 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_SHARE_URL?: string;
 }
 interface ImportMeta { readonly env: ImportMetaEnv }
+
+/** Tally, the first-party visit counter (hi.gachichio.org). Absent when blocked or opted out, so always call it with ?. */
+interface Window {
+  tally?: { page: (path: string) => void; click: (label: string) => void };
+}

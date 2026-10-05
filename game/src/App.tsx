@@ -65,6 +65,8 @@ export default function App() {
   /** The listeners below are created once; this is how they read the live route. */
   const routeRef = useRef<Route>(route);
   routeRef.current = route;
+  // Tally counts each screen as a page. Screen names only, never anything the player typed.
+  useEffect(() => { window.tally?.page(`/${route}`); }, [route]);
   const [phase, setPhase] = useState<'ready' | 'play' | 'dead'>(restoredDeadRun ? 'dead' : 'ready');
   const [score, setScore] = useState(restoredDeadRun?.score ?? 0);
   const [countdown, setCountdown] = useState(0);
@@ -239,6 +241,7 @@ export default function App() {
 
   // --------------------------------------------------------------- runs
   const startRun = useCallback((opts: { daily?: boolean; tutorial?: boolean } = {}) => {
+    window.tally?.click(opts.tutorial ? 'tutorial' : opts.daily ? 'daily' : 'run-start');
     const s = load();
     const seed = opts.daily ? dailySeed(todayKey()) : randomSeed();
     simRef.current = createSim({
@@ -372,6 +375,7 @@ export default function App() {
   // update, which is exactly right.
   const onCredited = useCallback((newBalance: number) => {
     setRespawns(newBalance);
+    window.tally?.click('purchased'); // hearts were credited: a paying customer, the strongest proof Tally can record
     const s = simRef.current;
     if (!s || s.phase !== 'dead') return;
     stackRef.current = [];
@@ -432,7 +436,7 @@ export default function App() {
             onRetry={() => startRun({ daily: sim.daily })}
             onHome={backToTitle}
             onRespawn={onRespawn}
-            onBuy={() => { persistDeadRun(sim); go('respawns'); }}
+            onBuy={() => { window.tally?.click('buy-hearts'); persistDeadRun(sim); go('respawns'); }}
           />
         )}
         {paused && (
