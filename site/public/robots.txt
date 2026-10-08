@@ -1,0 +1,6 @@
+# Search and AI-search crawlers are welcome. Training crawlers are a separate choice.
+User-agent: *
+Allow: /
+Disallow: /dovefallgame/
+
+Sitemap: https://play.gachichio.org/sitemap.xml
