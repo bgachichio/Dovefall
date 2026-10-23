@@ -1,0 +1,2 @@
+# worker/test/harness.mjs: dummy SESSION_SECRET for the local test harness, reviewed 2026-10-23
+a103cf505248c04f44eef68ead0c390ae99a1f69:worker/test/harness.mjs:generic-api-key:62
