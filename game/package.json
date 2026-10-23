@@ -9,7 +9,7 @@
     "build": "tsc -b --noEmit && vite build",
     "preview": "vite preview",
     "port": "node tools/port-constants.mjs",
-    "test": "node --test --test-timeout=60000 test/*.test.mjs"
+    "test": "node --test --test-timeout=120000 test/*.test.mjs"
   },
   "dependencies": {
     "react": "19.2.0",

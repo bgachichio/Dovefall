@@ -11,14 +11,21 @@ on:
   schedule:
     - cron: "0 4 * * 1"
 
+# Default-deny: the token can read the repo and nothing else (developer §8.3).
+permissions:
+  contents: read
+
 jobs:
   worker:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: worker
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
@@ -29,11 +36,14 @@ jobs:
 
   game:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: game
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
@@ -60,12 +70,15 @@ jobs:
 
   site:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: game
     defaults:
       run:
         working-directory: site
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
@@ -82,8 +95,11 @@ jobs:
 
   patches:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       # A patch that no longer applies is a deployment that stops halfway
       # through §5 with a half-modified game project.
       - name: Every patch is well-formed
